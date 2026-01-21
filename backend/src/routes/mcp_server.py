@@ -57,7 +57,7 @@ async def deploy_mcp(mcp: UploadFile = File(...), requirements: UploadFile = Fil
     code_path = os.path.join(server_dir, "server.py")
     mcp_file = await mcp.read()
     with open(code_path, "wb") as f:
-        f.write(f"\nfrom mcp.server.fastmcp import FastMCP\nmcp=FastMCP(name={unique_id},json_response=False,stateless_http=False)\n\n".encode(encoding="utf-8") + mcp_file + "\n\nif __name__=='__main__': uvicorn.run(mcp.streamable_http_app,host='locahost',port=8080)".encode(encoding="utf-8"))
+        f.write(f"\nfrom mcp.server.fastmcp import FastMCP\nimport uvicorn\nmcp=FastMCP(name='{unique_id}',json_response=False,stateless_http=False)\n\n".encode(encoding="utf-8") + mcp_file + "\n\nif __name__=='__main__': uvicorn.run(mcp.streamable_http_app,host='0.0.0.0',port=8080,factory=True,log_level='info')".encode(encoding="utf-8"))
 
     tree = ast.parse(mcp_file)
     tools = {}
@@ -75,7 +75,7 @@ async def deploy_mcp(mcp: UploadFile = File(...), requirements: UploadFile = Fil
 
     requirements_path = os.path.join(server_dir, "requirements.txt")
     with open(requirements_path, "wb") as f:
-        f.write(await requirements.read() + "\n\nmcp\nuvicorn".encode(encoding="utf-8"))
+        f.write(await requirements.read() + "\n\nmcp\nuvicorn[standard]".encode(encoding="utf-8"))
 
     dockerfile = f"""FROM python:3.12-slim
 WORKDIR /app
@@ -115,5 +115,7 @@ CMD ["python", "server.py"]
     port_info = container.attrs['NetworkSettings']['Ports']
     host_port = port_info['8080/tcp'][0]['HostPort']
     endpoint = f"http://localhost:{host_port}"
+
+    print(endpoint)
 
     return { "status": "success" }

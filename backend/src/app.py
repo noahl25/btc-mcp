@@ -3,7 +3,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
 from src.database import mongo
 
-from backend.src.routes.mcp_server import mcp_server
+from src.routes.mcp_server import mcp_server
+from src.routes.mcp_client import mcp_client
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -21,6 +22,7 @@ app.add_middleware(
 )
 
 app.include_router(mcp_server, prefix="/api")
+app.include_router(mcp_client, prefix="/ws")
 
 @app.get("/health")
 async def health():

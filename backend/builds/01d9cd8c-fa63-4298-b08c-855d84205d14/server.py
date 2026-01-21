@@ -1,3 +1,7 @@
+
+from mcp.server.fastmcp import FastMCP
+mcp=FastMCP(name=01d9cd8c-fa63-4298-b08c-855d84205d14,json_response=False,stateless_http=False)
+
 from typing import Any
 
 import httpx
@@ -83,3 +87,5 @@ Forecast: {period["detailedForecast"]}
         forecasts.append(forecast)
 
     return "\n---\n".join(forecasts)
+
+if __name__=='__main__': uvicorn.run(mcp.streamable_http_app,host='locahost',port=8080)

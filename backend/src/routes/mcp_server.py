@@ -49,7 +49,7 @@ def parse_docstring(docstring: str | None):
 
 
 @mcp_server.post("/deploy")
-async def deploy_mcp(mcp: UploadFile = File(...), requirements: UploadFile = File(...)):
+async def deploy_mcp(mcp: UploadFile = File(...), requirements: UploadFile = File(None), env: UploadFile = File(None)):
     unique_id = str(uuid.uuid4())
     server_dir = os.path.join(BUILD_DIR, unique_id)
     os.makedirs(server_dir, exist_ok=True)
@@ -57,7 +57,7 @@ async def deploy_mcp(mcp: UploadFile = File(...), requirements: UploadFile = Fil
     code_path = os.path.join(server_dir, "server.py")
     mcp_file = await mcp.read()
     with open(code_path, "wb") as f:
-        f.write(f"\nfrom mcp.server.fastmcp import FastMCP\nimport uvicorn\nmcp=FastMCP(name='{unique_id}',json_response=False,stateless_http=False)\n\n".encode(encoding="utf-8") + mcp_file + "\n\nif __name__=='__main__': uvicorn.run(mcp.streamable_http_app,host='0.0.0.0',port=8080,factory=True,log_level='info')".encode(encoding="utf-8"))
+        f.write(f"\nfrom mcp.server.fastmcp import FastMCP\nimport uvicorn\nimport os\nmcp=FastMCP(name='{unique_id}',json_response=False,stateless_http=False)\nos.chdir('tmp')\n\n".encode(encoding="utf-8") + mcp_file + "\n\nif __name__=='__main__': uvicorn.run(mcp.streamable_http_app,host='0.0.0.0',port=8080,factory=True,log_level='info')".encode(encoding="utf-8"))
 
     tree = ast.parse(mcp_file)
     tools = {}
@@ -75,7 +75,7 @@ async def deploy_mcp(mcp: UploadFile = File(...), requirements: UploadFile = Fil
 
     requirements_path = os.path.join(server_dir, "requirements.txt")
     with open(requirements_path, "wb") as f:
-        f.write(await requirements.read() + "\n\nmcp\nuvicorn[standard]".encode(encoding="utf-8"))
+        f.write((await requirements.read() if requirements is not None else "".encode(encoding="utf-8")) + "\n\nmcp\nuvicorn[standard]".encode(encoding="utf-8"))
 
     dockerfile = f"""FROM python:3.12-slim
 WORKDIR /app
@@ -94,7 +94,18 @@ CMD ["python", "server.py"]
         client.images.build(path=server_dir, tag=image_tag)
         shutil.rmtree(server_dir)
     except Exception as e:
-        return JSONResponse({ "error": str(e), "status": "failed" }, status_code=400)
+        return JSONResponse({ "error": str(e), "status": "failed" }, status_code=400)\
+    
+    environment = {}
+    if env is not None:
+        text = (await env.read()).decode(encoding="utf-8")
+        for line in text.splitlines():
+            line = line.strip()
+            if not line or line.startswith("#"):
+                continue
+            if "=" in line:
+                key, val = line.split("=", 1)
+                environment[key.strip()] = val.strip()
 
     try:
         container = client.containers.run(
@@ -106,7 +117,8 @@ CMD ["python", "server.py"]
             cpu_quota=5000,
             network_mode="bridge",
             tmpfs={"/tmp": "size=50m"},
-            read_only=True
+            read_only=True,
+            environment=environment
         )
     except Exception as e:
         return JSONResponse({ "error": str(e), "status": "failed" }, status_code=500)

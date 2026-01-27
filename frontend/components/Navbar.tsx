@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { motion } from 'framer-motion'
 import Image from "next/image";
+import { useRouter } from "next/navigation";
 
 type CursorState = {
     width: number,
@@ -57,16 +58,18 @@ export default function Navbar() {
         scale: 1
     });
 
+    const router = useRouter();
+
     return (
-        <div onMouseLeave={() => { setCursorState({ ...cursorState, opacity: 0 }) }} className="absolute flex overflow-hidden left-1/2 -translate-x-1/2 top-[35px] bg-white/20 border-white/20 border-1 border-2 rounded-[12px]">
+        <div onMouseLeave={() => { setCursorState({ ...cursorState, opacity: 0 }) }} className="absolute z-50 flex overflow-hidden left-1/2 -translate-x-1/2 top-[35px] bg-white/20 border-white/20 border-1 border-2 rounded-[12px]">
            <div className="w-[50px] border-r-2 border-white/20 bg-no-repeat bg-center bg-contain relative ml-1" style={{
                 backgroundImage: `url("/assets/images/icon-dark.png")`,
            }}>
            </div>
            <div className="py-[5px] px-[3px] flex">
-                <NavbarElement setCursorState={setCursorState} onClick={() => {}} name="Home" />
-                <NavbarElement setCursorState={setCursorState} onClick={() => {}} name="Explore" />
-                <NavbarElement setCursorState={setCursorState} onClick={() => {}} name="Create" />
+                <NavbarElement setCursorState={setCursorState} onClick={() => router.push("/")} name="Home" />
+                <NavbarElement setCursorState={setCursorState} onClick={() => router.push("/explore")} name="Explore" />
+                <NavbarElement setCursorState={setCursorState} onClick={() => router.push("/create")} name="Create" />
                 <CursorBackground state={cursorState} />
             </div>
         </div>

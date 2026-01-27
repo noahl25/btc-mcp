@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { DM_Sans } from "next/font/google";
 import "./globals.css";
+import Navbar from "@/components/Navbar";
 
 const dmSans = DM_Sans({
 	variable: "--font-default",
@@ -34,8 +35,10 @@ export default function RootLayout({
 	return (
 		<html lang="en">
 			<body
-				className={`${dmSans.variable} antialiased`}
+				className={`${dmSans.variable} antialiased overflow-x-hidden`}
 			>
+				<Navbar/>
+				<div className="inset-0 -z-1 absolute" style={{ background: "radial-gradient(120% 70% at 50% 0%, #4a8fdda8 30%, #00000000" }} />
 				{children}
 			</body>
 		</html>

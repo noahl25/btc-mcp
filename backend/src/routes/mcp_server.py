@@ -1,6 +1,7 @@
 import os
 import uuid
 import docker
+import docker.types
 from fastapi import APIRouter, UploadFile, File
 from fastapi.responses import JSONResponse
 import ast
@@ -49,17 +50,22 @@ def parse_docstring(docstring: str | None):
 
 
 @mcp_server.post("/deploy")
-async def deploy_mcp(mcp: UploadFile = File(...), requirements: UploadFile = File(None), env: UploadFile = File(None)):
+async def deploy_mcp(cpu: float, ram: int, tmpfs: int, mcp: UploadFile = File(...), requirements: UploadFile = File(None), env: UploadFile = File(None)):
     unique_id = str(uuid.uuid4())
     server_dir = os.path.join(BUILD_DIR, unique_id)
     os.makedirs(server_dir, exist_ok=True)
 
+    if ram < 128 or ram > 1024 or cpu > 100 or cpu < 1 or tmpfs > 1024 * 5:
+        return { "status": "failed", "error": "Invalid configuration." }
+
     code_path = os.path.join(server_dir, "server.py")
     mcp_file = await mcp.read()
+    tree = ast.parse(mcp_file)
+    if not all(isinstance(node, ast.FunctionDef) or isinstance(node, ast.AsyncFunctionDef) for node in tree.body):
+        return { "status": "failed", "error": "MCP file must only contain function definitions." }
     with open(code_path, "wb") as f:
         f.write(f"\nfrom mcp.server.fastmcp import FastMCP\nimport uvicorn\nimport os\nmcp=FastMCP(name='{unique_id}',json_response=False,stateless_http=False)\nos.chdir('tmp')\n\n".encode(encoding="utf-8") + mcp_file + "\n\nif __name__=='__main__': uvicorn.run(mcp.streamable_http_app,host='0.0.0.0',port=8080,factory=True,log_level='info')".encode(encoding="utf-8"))
 
-    tree = ast.parse(mcp_file)
     tools = {}
     for node in ast.walk(tree):
         if isinstance(node, ast.FunctionDef) or isinstance(node, ast.AsyncFunctionDef):
@@ -112,13 +118,20 @@ CMD ["python", "server.py"]
             image_tag,
             detach=True,
             name=f"mcp-server-{unique_id}",
-            ports={"8080/tcp": None},
-            mem_limit="200m",
-            cpu_quota=5000,
+            ports={ "8000/tcp": ("127.0.0.1", 0) },
+            mem_limit=f"{ram}m",
+            cpu_count=int(cpu * 10000000),
             network_mode="bridge",
-            tmpfs={"/tmp": "size=50m"},
+            tmpfs={"/tmp": f"size={tmpfs}m"},
             read_only=True,
-            environment=environment
+            environment=environment,
+            security_opt=["no-new-privileges"],
+            cap_drop=["ALL"],
+            pids_limit=64,
+            ulimits=[
+                docker.types.Ulimit(name="nofile", soft=64, hard=64),
+                docker.types.Ulimit(name="nproc", soft=64, hard=64),
+            ]
         )
     except Exception as e:
         return JSONResponse({ "error": str(e), "status": "failed" }, status_code=500)
@@ -127,7 +140,5 @@ CMD ["python", "server.py"]
     port_info = container.attrs['NetworkSettings']['Ports']
     host_port = port_info['8080/tcp'][0]['HostPort']
     endpoint = f"http://localhost:{host_port}"
-
-    print(endpoint)
 
     return { "status": "success" }

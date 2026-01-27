@@ -4,3 +4,26 @@ body {
     font-family: var(--font-default);
     user-select: none;
 }
+
+@layer utilities {
+
+    .scrollbar::-webkit-scrollbar {
+        height: 4px;
+        width: 4px;
+    }
+
+    .scrollbar::-webkit-scrollbar-track {
+        background: rgba(255, 255, 255, 0);
+    }
+
+    .scrollbar::-webkit-scrollbar-thumb {
+        background: rgba(0, 0, 0, 0.183);
+        border-radius: 100vw;
+    }
+
+    .scrollbar::-webkit-scrollbar-thumb:hover {
+        background: rgba(0, 0, 0, 0.358);
+        cursor: default;
+    }
+
+}

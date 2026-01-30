@@ -21,6 +21,9 @@ load_dotenv()
 
 mcp_client = APIRouter()
 
+class ToolError(Exception):
+    pass
+
 class MCPClient:
 
     def __init__(self):
@@ -148,15 +151,10 @@ class MCPClient:
                 tool_args = block.input #type: ignore
                 tool_use_id = block.id #type: ignore
 
-                result = await self.session.call_tool(tool_name, tool_args)
-
-                text = ""
-                if isinstance(result.content, list):
-                    text = "".join(
-                        b.text for b in result.content if getattr(b, "type", None) == "text" #type: ignore
-                    )
-                else:
-                    text = str(result.content)
+                try:
+                    result = await self.session.call_tool(tool_name, tool_args)
+                except:
+                    raise ToolError("An error occurred when calling a tool.")
 
                 self.messages.append({
                     "role": "user",
@@ -164,7 +162,7 @@ class MCPClient:
                         {
                             "type": "tool_result",
                             "tool_use_id": tool_use_id,
-                            "content": text,
+                            "content": result.content,
                         }
                     ],
                 })
@@ -197,15 +195,23 @@ async def websocket_chat(id: str, websocket: WebSocket):
 
         while True:
             ws = await websocket.receive_text()
+            if len(ws.encode('utf-8')) > 20000000:
+                await websocket.send_json({"type": "error", "message": "Input too large."})
+                return
             data: list = json.loads(ws)
 
             await websocket.send_json({"type": "start"})
 
-            async for chunk in client.process_query_stream(data): #TODO: Don't accept queries larger than x bytes.
-                await websocket.send_json({
-                    "type": "token",
-                    "content": chunk
-                })
+            try:
+                async for chunk in client.process_query_stream(data):
+                    await websocket.send_json({
+                        "type": "token",
+                        "content": chunk
+                    })
+            except ToolError as e:
+                await websocket.send_json({"type": "error", "message": str(e)})
+            except:
+                await websocket.send_json({"type": "error", "message": "An internal server error occurred."})
 
             await websocket.send_json({"type": "end"})
 

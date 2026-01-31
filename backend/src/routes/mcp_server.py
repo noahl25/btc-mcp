@@ -2,12 +2,14 @@ import os
 import uuid
 import docker
 import docker.types
-from fastapi import APIRouter, UploadFile, File, Form
+from fastapi import APIRouter, UploadFile, File, Form, Depends
 from fastapi.responses import JSONResponse
 import ast
 import shutil
 
+from src.l402.l402 import get_usd_amount_in_sats
 from src.database.mongo import get_db
+from src.middleware.middleware import creator_session
 
 os.environ["DOCKER_BUILDKIT"] = "0"
 
@@ -52,9 +54,11 @@ def parse_docstring(docstring: str | None):
 
     return {"description": description, "args": args, "returns": returns}
 
-import time
 @mcp_server.post("/deploy")
-async def deploy_mcp(title: str = Form(...), description: str = Form(...), cpu: float = Form(...), ram: int = Form(...), tmpfs: int = Form(...), mcp: UploadFile = File(...), requirements: UploadFile = File(None), env: UploadFile = File(None)):
+async def deploy_mcp(title: str = Form(...), description: str = Form(...), cpu: float = Form(...), ram: int = Form(...), tmpfs: int = Form(...), private: bool = Form(...), mcp: UploadFile = File(...), requirements: UploadFile = File(None), env: UploadFile = File(None), session = Depends(creator_session)):
+
+    if session == None:
+        return JSONResponse({ "status": "failed", "error": "Not authenticated." }, status_code=403)
 
     unique_id = str(uuid.uuid4())
     server_dir = os.path.join(BUILD_DIR, unique_id)
@@ -162,7 +166,6 @@ CMD ["python", "server.py"]
     container.reload()
     port_info = container.attrs['NetworkSettings']['Ports']
     host_port = port_info['8080/tcp'][0]['HostPort']
-    endpoint = f"http://localhost:{host_port}"
 
     cpuCostPerPercent = 0.0005
     memoryCostPerMB = 0.0001
@@ -173,7 +176,11 @@ CMD ["python", "server.py"]
         "title": title,
         "description": description,
         "tools": tools,
-        "cost_per_token": totalCost
+        "cost_per_token": totalCost,
+        "creator": session["pubkey"],
+        "port": host_port,
+        "id": unique_id,
+        "private": private
     })
 
     return JSONResponse({ "status": "success" }, status_code=200)

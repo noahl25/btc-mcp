@@ -1,7 +1,7 @@
 import httpx
 from typing import Optional
 from contextlib import AsyncExitStack
-import asyncio
+from src.database.mongo import get_db
 import json
 
 from mcp import ClientSession
@@ -11,11 +11,16 @@ from anthropic import Anthropic
 from anthropic.types import ToolParam, MessageParam, ImageBlockParam, TextBlockParam, DocumentBlockParam
 from dotenv import load_dotenv
 
-from fastapi import APIRouter, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, Query, WebSocket, WebSocketDisconnect, Depends
 import os
 import base64
 from docx import Document
 import io
+import tiktoken
+
+from src.l402.l402 import create_response
+
+from src.middleware.middleware import user_session
 
 load_dotenv()
 
@@ -24,13 +29,39 @@ mcp_client = APIRouter()
 class ToolError(Exception):
     pass
 
+class OutOfCredits(Exception):
+    pass
+
+enc = tiktoken.get_encoding("cl100k_base")
+
 class MCPClient:
 
-    def __init__(self):
+    def __init__(self, balance, user_id, creator_id, cost_per_token, max_tokens):
         self.session: Optional[ClientSession] = None
         self.exit_stack = AsyncExitStack()
         self.anthropic = Anthropic(api_key=os.getenv("ANTHROPIC"))
         self.messages = []
+        self.balance = balance
+        self.cost_per_token = cost_per_token
+        self.specified_max_tokens = max_tokens
+        self.user_id = user_id
+        self.creator_id = creator_id
+
+    def remaining_tokens(self) -> int:
+        return int(self.balance // self.cost_per_token)
+    
+    def max_tokens(self) -> int:
+        if self.specified_max_tokens:
+            return self.specified_max_tokens
+        return min(self.remaining_tokens() - 20, 1000)
+    
+    async def update_user_balance(self, new_balance: int):
+        users = get_db()["users"]
+        await users.update_one({"id": self.user_id}, {"$set": {"balance": new_balance}})
+
+    async def update_creator_credit(self, new_balance: int):
+        users = get_db()["creators"]
+        await users.update_one({"pubkey": self.creator_id }, {"$set": {"credits": new_balance}})
 
     async def connect_to_streamable_http_server(self, server_url: str, headers: Optional[dict] = None):
         self._streams_context = streamable_http_client(
@@ -55,8 +86,8 @@ class MCPClient:
 
         if not self.session:
             return
-        
-        system = "You are a helpful AI assistant." #TODO: Get system prompt from client.
+
+        system = "You are a helpful AI assistant." #TODO: What should this be?
         
         def docx_to_text(b: bytes) -> str:
             file_like = io.BytesIO(b)
@@ -96,7 +127,11 @@ class MCPClient:
                 except ValueError as e:
                     return TextBlockParam(type="text", text=f"User attempted to add file which was unable to be parsed: {str(e)}")
             return None
-            
+        
+        remaining = self.remaining_tokens()
+        if remaining <= 20:
+            raise OutOfCredits()
+
         content = []
         for block in query:
             param = create_block_param(block)
@@ -120,23 +155,35 @@ class MCPClient:
             for tool in tools_response.tools
         ]
 
+        self.estimated_output_tokens = 0
+
         with self.anthropic.messages.stream(
             model="claude-haiku-4-5-20251001",
-            max_tokens=1000,
+            max_tokens=self.max_tokens(),
             messages=self.messages,
             tools=available_tools,
             system=system
         ) as stream:
             for event in stream:
                 if event.type == "content_block_delta" and event.delta.type == "text_delta":
-                    for char in event.delta.text:
-                        yield char
+                    tokens = len(enc.encode(event.delta.text))
+                    self.estimated_output_tokens += tokens
+
+                    if self.estimated_output_tokens >= self.remaining_tokens() - 20:
+                        stream.close()
+                        raise OutOfCredits()
+
+                    yield event.delta.text
 
             assistant_msg = stream.get_final_message()
             self.messages.append({
                 "role": assistant_msg.role,
                 "content": assistant_msg.content
             })
+            actual_tokens = assistant_msg.usage.output_tokens
+            self.balance -= actual_tokens * self.cost_per_token
+            await self.update_user_balance(self.balance)
+
         while assistant_msg.stop_reason == "tool_use":
             new_tool_uses = [
                 block for block in assistant_msg.content
@@ -166,39 +213,81 @@ class MCPClient:
                         }
                     ],
                 })
-
+            remaining = self.remaining_tokens()
+            if remaining <= 20:
+                raise OutOfCredits()
             with self.anthropic.messages.stream(
                 model="claude-haiku-4-5-20251001",
-                max_tokens=1000,
+                max_tokens=self.max_tokens(),
                 messages=self.messages,
                 tools=available_tools,
                 system=system
             ) as followup:
-                for f_event in followup:
-                    if f_event.type == "content_block_delta" and f_event.delta.type == "text_delta":
-                        yield f_event.delta.text
+                for event in followup:
+                    if event.type == "content_block_delta" and event.delta.type == "text_delta":
+                        tokens = len(enc.encode(event.delta.text))
+                        self.estimated_output_tokens += tokens
+                        if self.estimated_output_tokens >= self.remaining_tokens() - 20:
+                            followup.close()
+                            raise OutOfCredits()
+                        yield event.delta.text
+
                 assistant_msg = followup.get_final_message()
                 self.messages.append({
                     "role": assistant_msg.role,
                     "content": assistant_msg.content
                 })
+                actual_tokens = assistant_msg.usage.output_tokens
+                self.balance -= actual_tokens * self.cost_per_token
+                await self.update_user_balance(self.balance)
 
     
 @mcp_client.websocket("/chat/{id}")
-async def websocket_chat(id: str, websocket: WebSocket):
+async def websocket_chat(id: str, websocket: WebSocket, max_tokens: str = Query(None), user = Depends(user_session)):
 
     await websocket.accept()
-    client = MCPClient()
+
+    agents = get_db()["agents"]
+    agent = await agents.find_one({ "id": id })
+
+    if not agent:
+        await websocket.send_json({
+            "type": "error",
+            "message": "Agent not found.",
+        })
+        await websocket.close(1000)
+        return
+
+    port = agent["port"]
+    cost_per_token = agent["cost_per_token"]
+
+    if not user:
+        await websocket.send_json({
+            "type": "error",
+            "message": "Authorization not found. Call /user-signin to receive an authorization token.",
+        })
+        await websocket.close(1000)
+        return
+        
+    
+    client = MCPClient(user["balance"], user["user_id"], agent["creator"], cost_per_token, max_tokens)
 
     try:
-        await client.connect_to_streamable_http_server(f"http://localhost:{id}/mcp")
+        await client.connect_to_streamable_http_server(f"http://localhost:{port}/mcp")
 
         while True:
             ws = await websocket.receive_text()
+            
             if len(ws.encode('utf-8')) > 20000000:
                 await websocket.send_json({"type": "error", "message": "Input too large."})
-                return
-            data: list = json.loads(ws)
+                await websocket.send_json({"type": "end"})
+                continue
+            try:
+                data: list = json.loads(ws)
+            except:
+                await websocket.send_json({"type": "error", "message": "Unable to parse input"})
+                await websocket.send_json({"type": "end"})
+                continue
 
             await websocket.send_json({"type": "start"})
 
@@ -208,6 +297,8 @@ async def websocket_chat(id: str, websocket: WebSocket):
                         "type": "token",
                         "content": chunk
                     })
+            except OutOfCredits:
+                await websocket.send_json({"type": "402", "message": create_response(user["id"])})
             except ToolError as e:
                 await websocket.send_json({"type": "error", "message": str(e)})
             except:

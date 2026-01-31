@@ -5,7 +5,8 @@ from src.database import mongo
 
 from src.routes.mcp_server import mcp_server
 from src.routes.mcp_client import mcp_client
-from src.routes.lnauth import lnauth
+from src.routes.creator import creator
+from src.routes.user import user
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -24,7 +25,8 @@ app.add_middleware(
 
 app.include_router(mcp_server, prefix="/api")
 app.include_router(mcp_client, prefix="/ws")
-app.include_router(lnauth, prefix="/lnurl-auth")
+app.include_router(creator, prefix="/creator")
+app.include_router(user, prefix="/user")
 
 @app.get("/health")
 async def health():

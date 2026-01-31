@@ -4,6 +4,9 @@ from datetime import datetime, timezone
 import httpx
 from src.database.mongo import get_db
 from src.database.redis import redis
+from dotenv import load_dotenv
+
+load_dotenv()
 
 OFFERS = [
     {
@@ -13,27 +16,36 @@ OFFERS = [
         "amount": 50,
         "currency": "USD",
         "type": "top-up",
-        "payment_method": "lightning"
+        "payment_method": "lightning",
+        "balance": 1000
     },
     {
         "id": "b2ba7eae-bf07-4128-8f65-514149abe2e4",
-        "title": "1000 Credit Package",
+        "title": "10000 Credit Package",
         "description": "Purchase 10000 credits for API access.",
         "amount": 450,
         "currency": "USD",
         "type": "top-up",
-        "payment_method": "lightning"
+        "payment_method": "lightning",
+        "balance": 10000
     },
     {
-        "id": "3492623f-528d-4cec-80d9-a8e6b8f9dec8",
-        "title": "1000 Credit Package",
+        "id": "3497623f-558d-4cec-80d9-48e6bdf9dec8",
+        "title": "100000 Credit Package",
         "description": "Purchase 100000 credits for API access.",
         "amount": 3500,
         "currency": "USD",
         "type": "top-up",
-        "payment_method": "lightning"
+        "payment_method": "lightning",
+        "balance": 100000
     }
 ]
+
+def get_offer_by_id(offer_id: str):
+    for offer in OFFERS:
+        if offer["id"] == offer_id:
+            return offer
+    return None
 
 def create_response(authorization_token: str):
     return {
@@ -72,20 +84,22 @@ async def create_lightning_invoice(user_id, offer, expiry):
         api_token_client_secret=ls_secret,
     )
 
+    offer = get_offer_by_id(offer)
+    if not offer:
+        return None
     amount_msats = (await get_usd_amount_in_sats(offer["amount"])) * 1000
     expiry_secs = int((expiry - datetime.now(timezone.utc)).total_seconds())
-    invoice = client.create_invoice(
-        node_id=ls_node_id,
+    invoice = client.create_test_mode_invoice(
+        local_node_id=ls_node_id,
         amount_msats=amount_msats,
-        memo=offer["title"],
-        expiry_secs=expiry_secs
+        memo=offer["title"]
     )
     payments = get_db()["payments"]
     await payments.insert_one({
-        "invoice_id": invoice.id,
+        "invoice_id": invoice,
         "user_id": user_id,
         "offer_id": offer["id"],
         "completed": False
     })
 
-    return invoice.data.encoded_payment_request
+    return invoice

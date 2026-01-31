@@ -3,24 +3,21 @@ from typing import Optional
 from contextlib import AsyncExitStack
 from src.database.mongo import get_db
 import json
-
 from mcp import ClientSession
 from mcp.client.streamable_http import streamable_http_client
-
 from anthropic import Anthropic
 from anthropic.types import ToolParam, MessageParam, ImageBlockParam, TextBlockParam, DocumentBlockParam
 from dotenv import load_dotenv
-
-from fastapi import APIRouter, Query, WebSocket, WebSocketDisconnect, Depends
+from fastapi import APIRouter, Query, WebSocket, WebSocketDisconnect
 import os
 import base64
 from docx import Document
 import io
 import tiktoken
-
 from src.l402.l402 import create_response
-
 from src.middleware.middleware import user_session
+from src.database.redis import redis
+from uuid import uuid4
 
 load_dotenv()
 
@@ -52,16 +49,17 @@ class MCPClient:
     
     def max_tokens(self) -> int:
         if self.specified_max_tokens:
-            return self.specified_max_tokens
+            return int(self.specified_max_tokens)
         return min(self.remaining_tokens() - 20, 1000)
     
     async def update_user_balance(self, new_balance: int):
         users = get_db()["users"]
-        await users.update_one({"id": self.user_id}, {"$set": {"balance": new_balance}})
+        await users.update_one({"user_id": self.user_id}, {"$set": {"balance": new_balance}})
 
     async def update_creator_credit(self, new_balance: int):
-        users = get_db()["creators"]
-        await users.update_one({"pubkey": self.creator_id }, {"$set": {"credits": new_balance}})
+        creators = get_db()["creators"]
+        print(self.actual_tokens)
+        await creators.update_one({"pubkey": self.creator_id }, {"$inc": {"credits": self.actual_tokens * 0.05}})
 
     async def connect_to_streamable_http_server(self, server_url: str, headers: Optional[dict] = None):
         self._streams_context = streamable_http_client(
@@ -180,9 +178,10 @@ class MCPClient:
                 "role": assistant_msg.role,
                 "content": assistant_msg.content
             })
-            actual_tokens = assistant_msg.usage.output_tokens
-            self.balance -= actual_tokens * self.cost_per_token
+            self.actual_tokens = assistant_msg.usage.output_tokens
+            self.balance -= self.actual_tokens * self.cost_per_token
             await self.update_user_balance(self.balance)
+            await self.update_creator_credit(self.actual_tokens * self.cost_per_token)
 
         while assistant_msg.stop_reason == "tool_use":
             new_tool_uses = [
@@ -203,13 +202,37 @@ class MCPClient:
                 except:
                     raise ToolError("An error occurred when calling a tool.")
 
+                tool_result_content = []
+                for content_block in result.content:
+                    block_type = getattr(content_block, 'type', None)
+                    if block_type == 'text' and hasattr(content_block, 'text'):
+                        tool_result_content.append({
+                            "type": "text",
+                            "text": content_block.text  # type: ignore
+                        })
+                    elif block_type == 'image' and hasattr(content_block, 'data'):
+                        mime_type = getattr(content_block, 'mimeType', 'image/png')
+                        tool_result_content.append({
+                            "type": "image",
+                            "source": {
+                                "type": "base64",
+                                "media_type": mime_type,
+                                "data": content_block.data  # type: ignore
+                            }
+                        })
+                    else:
+                        tool_result_content.append({
+                            "type": "text",
+                            "text": str(content_block)
+                        })
+
                 self.messages.append({
                     "role": "user",
                     "content": [
                         {
                             "type": "tool_result",
                             "tool_use_id": tool_use_id,
-                            "content": result.content,
+                            "content": tool_result_content,
                         }
                     ],
                 })
@@ -237,15 +260,18 @@ class MCPClient:
                     "role": assistant_msg.role,
                     "content": assistant_msg.content
                 })
-                actual_tokens = assistant_msg.usage.output_tokens
-                self.balance -= actual_tokens * self.cost_per_token
+                self.actual_tokens = assistant_msg.usage.output_tokens
+                self.balance -= self.actual_tokens * self.cost_per_token
                 await self.update_user_balance(self.balance)
+                await self.update_creator_credit(self.actual_tokens * self.cost_per_token)
 
     
 @mcp_client.websocket("/chat/{id}")
-async def websocket_chat(id: str, websocket: WebSocket, max_tokens: str = Query(None), user = Depends(user_session)):
+async def websocket_chat(id: str, websocket: WebSocket, max_tokens: str = Query(None)):
 
     await websocket.accept()
+
+    user = await user_session(websocket)
 
     agents = get_db()["agents"]
     agent = await agents.find_one({ "id": id })
@@ -269,14 +295,24 @@ async def websocket_chat(id: str, websocket: WebSocket, max_tokens: str = Query(
         await websocket.close(1000)
         return
         
-    
     client = MCPClient(user["balance"], user["user_id"], agent["creator"], cost_per_token, max_tokens)
 
+    ws_id = str(uuid4())
+
     try:
+        set = await redis.setex(f"ws_active:{user["user_id"]}", 300, ws_id)
+        if not set:
+            await websocket.close(1000)
+            return
+
         await client.connect_to_streamable_http_server(f"http://localhost:{port}/mcp")
 
         while True:
+            
             ws = await websocket.receive_text()
+
+            user = await get_db()["users"].find_one({ "user_id": user["user_id"] }) #type: ignore
+            client.balance = user["balance"] #type: ignore
             
             if len(ws.encode('utf-8')) > 20000000:
                 await websocket.send_json({"type": "error", "message": "Input too large."})
@@ -298,7 +334,7 @@ async def websocket_chat(id: str, websocket: WebSocket, max_tokens: str = Query(
                         "content": chunk
                     })
             except OutOfCredits:
-                await websocket.send_json({"type": "402", "message": create_response(user["id"])})
+                await websocket.send_json({"type": "402", "message": create_response(user["user_id"])}) #type: ignore
             except ToolError as e:
                 await websocket.send_json({"type": "error", "message": str(e)})
             except:
@@ -309,4 +345,7 @@ async def websocket_chat(id: str, websocket: WebSocket, max_tokens: str = Query(
     except WebSocketDisconnect:
         pass
     finally:
+        owner = await redis.get(f"ws_active:{user["user_id"]}") #type: ignore
+        if owner == ws_id:
+            await redis.delete(f"ws_active:{user["user_id"]}") #type: ignore
         await client.cleanup()

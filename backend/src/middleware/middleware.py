@@ -1,4 +1,5 @@
-from fastapi import Request
+from fastapi import Request, WebSocket
+from typing import Union
 import jwt
 from dotenv import load_dotenv
 import os
@@ -9,6 +10,7 @@ load_dotenv()
 
 async def creator_session(request: Request):
     token = request.cookies.get("jwt")
+    print(token)
     if not token:
         return None
     try:
@@ -18,11 +20,12 @@ async def creator_session(request: Request):
         payload = jwt.decode(token, secret, algorithms=["HS256"])
         if payload["iss"] != "btc-mcp" or payload["exp"] < time.time():
             return None
-        return {"pubkey": payload["pubkey"], "balance": (await get_db()["creators"].find_one({ "pubkey": payload["pubkey"] }))}
+        creator = await get_db()["creators"].find_one({"pubkey": payload["pubkey"]})
+        return {"pubkey": payload["pubkey"], "credits": creator["credits"] if creator else 0}
     except:
         return None
     
-async def user_session(request: Request):
+async def user_session(request: Union[Request, WebSocket]):
     auth = request.headers.get("Authorization")
     if not auth or not auth.startswith('Bearer '):
         return None

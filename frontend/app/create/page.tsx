@@ -431,6 +431,7 @@ export default function Create() {
         try {
             const response = await axios.post("http://localhost:8000/api/deploy", formData, {
                 headers: { "Content-Type": "multipart/form-data" },
+                withCredentials: true
             });
             setSubmission(response);
         } catch (error: any) {

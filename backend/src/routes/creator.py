@@ -56,7 +56,7 @@ async def callback(k1: str, key: str, sig: str):
 
 @creator.get("/creator-signin/{k1}")
 async def check_session(k1: str, response: Response):
-    state: str = await redis.get(f"lnurl-k1-{k1}")
+    state = await redis.get(f"lnurl-k1-{k1}")
     
     if state and state.startswith("auth:"):
         pubkey = state.split(":")[1]
@@ -75,6 +75,7 @@ async def check_session(k1: str, response: Response):
         
         await redis.delete(f"lnurl-k1-{k1}")
         return { "status": "success" }
-    
+    if not state:
+        return { "status": "Invalid k1" }
     return { "status": "pending" }
     

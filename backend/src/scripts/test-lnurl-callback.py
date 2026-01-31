@@ -4,10 +4,13 @@ import hashlib
 priv = PrivateKey()
 pub = priv.public_key.format().hex()
 
-k1 = "abb10e5d7501bbd1978d008def44b82006a83c74df7b2ec55edc41d6e30d8915"
+k1 = "82d5fc9d9a1569a563273817438832a18efab86c9accd27bf6a63fb880221048"
+
+print(str(priv))
+print(pub)
 
 msg = hashlib.sha256(bytes.fromhex(k1)).digest()
 sig = priv.sign(msg).hex()
 import requests
-r = requests.get(f"http://127.0.0.1:8000/lnurl-auth/lnurl-callback?k1={k1}&key={pub}&sig={sig}")
+r = requests.get(f"http://localhost:8000/creator/creator-callback?k1={k1}&key={pub}&sig={sig}")
 print(r.json())

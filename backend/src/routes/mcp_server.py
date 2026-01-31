@@ -56,7 +56,7 @@ def parse_docstring(docstring: str | None):
 
 @mcp_server.post("/deploy")
 async def deploy_mcp(title: str = Form(...), description: str = Form(...), cpu: float = Form(...), ram: int = Form(...), tmpfs: int = Form(...), private: bool = Form(...), mcp: UploadFile = File(...), requirements: UploadFile = File(None), env: UploadFile = File(None), session = Depends(creator_session)):
-
+    
     if session == None:
         return JSONResponse({ "status": "failed", "error": "Not authenticated." }, status_code=403)
 

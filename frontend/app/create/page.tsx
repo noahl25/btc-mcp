@@ -1,10 +1,12 @@
 'use client'
 
 import { File, Lock, Server, Sparkles, X } from 'lucide-react';
-import { animate, AnimatePresence, motion, useAnimationControls, useMotionTemplate, useMotionValue } from 'motion/react';
+import { AnimatePresence, motion, useAnimationControls } from 'motion/react';
 import { useState, useRef, useEffect } from 'react';
 import axios, { AxiosResponse } from "axios";
 import { useRouter } from 'next/navigation';
+import QRCode from "qrcode";
+import React from 'react';
 
 type FileInputProps = {
     icon: React.ReactNode,
@@ -274,7 +276,7 @@ const SubmissionScreen = ({ state, onClose }: { state: AxiosResponse<any, any, {
     }, [state])
 
     return (
-        <motion.div onClick={() => setLoadingState("failed")} initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ ease: "easeInOut", duration: 0.6 }} exit={{ opacity: 0 }} className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-6">
+        <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ ease: "easeInOut", duration: 0.6 }} exit={{ opacity: 0 }} className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-6">
             <div className="bg-white relative rounded-2xl shadow-2xl max-w-md w-full h-60 relative">
                 <div className='mt-7'>
                     <div className='mx-auto w-fit mb-5 relative translate-y-2'>
@@ -337,6 +339,129 @@ const SubmissionScreen = ({ state, onClose }: { state: AxiosResponse<any, any, {
     );
 }
 
+const AuthenticationScreen = ({ close }: { close: () => void }) => {
+
+    const [showQRCode, setShowQRCode] = useState<boolean>(false);
+    const [complete, setComplete] = useState<boolean>(false);
+    const [k1, setK1] = useState<string | null>(null);
+    const canvasRef = useRef<HTMLCanvasElement>(null);
+
+    useEffect(() => {
+        async function fetchLNURL() {
+            const res = await axios.get("http://localhost:8000/creator/creator-signin", {
+                withCredentials: true
+            });
+            setK1(res.data.k1);
+            console.log(res.data.k1);
+            if (canvasRef.current) {
+                QRCode.toCanvas(canvasRef.current, res.data.lnurl);
+                setShowQRCode(true);
+            }
+        }
+        fetchLNURL();
+    }, []);
+
+    useEffect(() => {
+
+        if (!k1) return;
+
+        const id = setInterval(async () => {
+            const res = await axios.get(`http://localhost:8000/creator/creator-signin/${k1}`, {
+                withCredentials: true
+            });
+            if (res.data.status === "success") {
+                setComplete(true);
+                clearInterval(id);
+            }
+        }, 3000);
+
+        return () => clearInterval(id);
+
+    }, [k1]);
+
+    const checkAnimationControls = useAnimationControls();
+    useEffect(() => {
+
+        if (complete) {
+            const timeout = setTimeout(() => {
+                checkAnimationControls.start({
+                    pathLength: 1,
+                    opacity: 1,
+                    transition: {
+                        pathLength: { type: "spring", duration: 0.8, bounce: 0 },
+                        opacity: { duration: 0.01 },
+                    },
+                }).then(() => {
+                    setTimeout(close, 750);
+                });
+            }, 500);
+            return () => clearTimeout(timeout);
+        }
+
+    }, [complete]);
+    
+    return (
+        <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-6">
+            <div className="bg-white relative rounded-2xl py-3 px-5 shadow-2xl flex flex-col items-center justify-center w-[350px] h-[350px] overflow-hidden">
+                <div onClick={close} className='absolute p-1 cursor-pointer group hover:bg-red-500/20 text-gray-400 hover:text-red-500 transition-all top-2 right-2 size-6 rounded-full bg-gray-400/10 flex items-center justify-center z-10'>
+                    <X/>
+                </div>
+                <AnimatePresence mode='popLayout'>
+                {
+                    !complete ?
+                    <motion.div 
+                        key="initial"
+                        initial={{ opacity: 1 }}
+                        exit={{ opacity: 0 }}
+                        className="flex flex-col items-center justify-center"
+                    >
+                        <motion.div initial={{ opacity: 0 }} animate={{ opacity: showQRCode ? 1 : 0 }} className='w-full flex items-center justify-center'>
+                            <canvas ref={canvasRef} className='w-full h-full'/>
+                        </motion.div>
+                        <div className='text-center text-gray-800'>
+                            <div>
+                                Authenticate using your Lightning wallet.
+                            </div>
+                            <div className='text-xs text-gray-400'>
+                                This will be used to verify the ownership of your agent.
+                            </div>
+                        </div>
+                    </motion.div>
+                    :
+                    <motion.div
+                        initial={{ scale: 0, opacity: 0 }}
+                        animate={{ scale: 1, opacity: 1 }}
+                        transition={{ type: "spring", duration: 0.5, bounce: 0.4 }}
+                        className="flex items-center justify-center"
+                        key="check"
+                    >
+                        <div className="size-14 rounded-full bg-[#2c81e3]/10 flex items-center justify-center">
+                            <motion.svg
+                                xmlns="http://www.w3.org/2000/svg"
+                                width="32"
+                                height="32"
+                                viewBox="0 0 24 24"
+                                fill="none"
+                                stroke="#2c81e3"
+                                strokeWidth="3"
+                                strokeLinecap="round"
+                                strokeLinejoin="round"
+                            >
+                                <motion.path
+                                    animate={checkAnimationControls}
+                                    d="M4 12 9 17 20 6"
+                                    initial={{ pathLength: 0, opacity: 0 }}
+                                />
+                            </motion.svg>
+                        </div>
+                    </motion.div>
+                }
+                </AnimatePresence>
+            </div>
+        </motion.div>
+    );
+}
+
 type ErrorField = "file" | "other" | "title" | "description";
 type ErrorMap = Map<ErrorField, string[]>;
 
@@ -355,6 +480,8 @@ export default function Create() {
     const [errors, setErrors] = useState<ErrorMap>(new Map());
     const [submission, setSubmission] = useState<AxiosResponse<any, any, {}> | null>(null);
     const [submitted, setSubmitted] = useState<boolean>(false);
+    
+    const [showAuthenticationScreen, setShowAuthenticationScreen] = useState<boolean>(false);
 
     useEffect(() => {
 
@@ -416,6 +543,14 @@ export default function Create() {
 
         setErrors(new Map());
 
+        const res = await axios.get("http://localhost:8000/creator/session", {
+            withCredentials: true
+        });
+        if (!res.data.authenticated) {
+            setShowAuthenticationScreen(true);
+            return;
+        }
+
         const formData = new FormData();
         if (server) formData.append("mcp", server);
         if (requirements) formData.append("requirements", requirements);
@@ -449,6 +584,12 @@ export default function Create() {
         <div className="w-full relative pt-[100px]">
             {
                 submitted && <SubmissionScreen state={submission} onClose={() => { setSubmitted(false); setSubmission(null); }} />
+            }
+            {
+                showAuthenticationScreen && <AuthenticationScreen close={() => {
+                    setShowAuthenticationScreen(false);
+                    onSubmit();
+                }}/>
             }
             <div className="fixed z-10 md:px-20 flex items-center justify-center flex-col md:items-end left-0 shadow-2xl/50 right-0 bottom-0 h-[100px] bg-white">
                 <div className="text-lg text-gray-800">Estimated cost per token: <span className="font-bold text-gray-800">{sats.toFixed(2)} credits</span></div>

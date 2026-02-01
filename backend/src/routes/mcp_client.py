@@ -5,7 +5,7 @@ from src.database.mongo import get_db
 import json
 from mcp import ClientSession
 from mcp.client.streamable_http import streamable_http_client
-from anthropic import Anthropic
+from anthropic import AsyncAnthropic
 from anthropic.types import ToolParam, MessageParam, ImageBlockParam, TextBlockParam, DocumentBlockParam
 from dotenv import load_dotenv
 from fastapi import APIRouter, Query, WebSocket, WebSocketDisconnect
@@ -32,11 +32,10 @@ class OutOfCredits(Exception):
 enc = tiktoken.get_encoding("cl100k_base")
 
 class MCPClient:
-
     def __init__(self, balance, user_id, creator_id, cost_per_token, max_tokens):
         self.session: Optional[ClientSession] = None
         self.exit_stack = AsyncExitStack()
-        self.anthropic = Anthropic(api_key=os.getenv("ANTHROPIC"))
+        self.anthropic = AsyncAnthropic(api_key=os.getenv("ANTHROPIC"))
         self.messages = []
         self.balance = balance
         self.cost_per_token = cost_per_token
@@ -155,25 +154,25 @@ class MCPClient:
 
         self.estimated_output_tokens = 0
 
-        with self.anthropic.messages.stream(
+        async with self.anthropic.messages.stream(
             model="claude-haiku-4-5-20251001",
             max_tokens=self.max_tokens(),
             messages=self.messages,
             tools=available_tools,
             system=system
         ) as stream:
-            for event in stream:
+            async for event in stream:
                 if event.type == "content_block_delta" and event.delta.type == "text_delta":
                     tokens = len(enc.encode(event.delta.text))
                     self.estimated_output_tokens += tokens
 
                     if self.estimated_output_tokens >= self.remaining_tokens() - 20:
-                        stream.close()
+                        await stream.close()
                         raise OutOfCredits()
 
-                    yield event.delta.text
+                    yield {"type": "text", "content": event.delta.text}
 
-            assistant_msg = stream.get_final_message()
+            assistant_msg = await stream.get_final_message()
             self.messages.append({
                 "role": assistant_msg.role,
                 "content": assistant_msg.content
@@ -192,6 +191,7 @@ class MCPClient:
             if not new_tool_uses:
                 break
 
+            has_large_data = False
             for block in new_tool_uses:
                 tool_name = block.name #type: ignore
                 tool_args = block.input #type: ignore
@@ -199,63 +199,119 @@ class MCPClient:
 
                 try:
                     result = await self.session.call_tool(tool_name, tool_args)
-                except:
-                    raise ToolError("An error occurred when calling a tool.")
+                except Exception as e:
+                    print(f"Tool call error: {e}")
+                    raise ToolError(f"An error occurred when calling tool '{tool_name}': {str(e)}")
 
                 tool_result_content = []
                 for content_block in result.content:
                     block_type = getattr(content_block, 'type', None)
-                    if block_type == 'text' and hasattr(content_block, 'text'):
+                    
+                    if block_type == 'text':
                         tool_result_content.append({
                             "type": "text",
                             "text": content_block.text  # type: ignore
                         })
-                    elif block_type == 'image' and hasattr(content_block, 'data'):
-                        mime_type = getattr(content_block, 'mimeType', 'image/png')
+                    elif block_type == 'image':
+                        has_large_data = True
                         tool_result_content.append({
                             "type": "image",
                             "source": {
                                 "type": "base64",
-                                "media_type": mime_type,
+                                "media_type": content_block.mimeType,  # type: ignore
                                 "data": content_block.data  # type: ignore
                             }
                         })
+                    elif block_type == 'audio':
+                        has_large_data = True
+                        tool_result_content.append({
+                            "type": "audio",
+                            "data": content_block.data,  # type: ignore
+                            "media_type": content_block.mimeType  # type: ignore
+                        })
+                    elif block_type == 'resource_link':
+                        description = getattr(content_block, 'description', '') or ''
+                        tool_result_content.append({
+                            "type": "text",
+                            "text": f"Resource: {content_block.name}\nURI: {content_block.uri}\n{description}".strip()  # type: ignore
+                        })
+                    elif block_type == 'resource':
+                        resource = content_block.resource  # type: ignore
+                        if hasattr(resource, 'text'):
+                            tool_result_content.append({
+                                "type": "text",
+                                "text": resource.text  # type: ignore
+                            })
+                        elif hasattr(resource, 'blob'):
+                            has_large_data = True
+                            mime_type = getattr(resource, 'mimeType', 'application/octet-stream')
+                            tool_result_content.append({
+                                "type": "blob",
+                                "uri": resource.uri,  # type: ignore
+                                "media_type": mime_type,
+                                "data": resource.blob  # type: ignore
+                            })
+                        else:
+                            tool_result_content.append({
+                                "type": "text",
+                                "text": f"[Resource: {getattr(resource, 'uri', 'unknown')}]"
+                            })
                     else:
                         tool_result_content.append({
                             "type": "text",
                             "text": str(content_block)
                         })
 
-                self.messages.append({
-                    "role": "user",
-                    "content": [
-                        {
-                            "type": "tool_result",
-                            "tool_use_id": tool_use_id,
-                            "content": tool_result_content,
-                        }
-                    ],
-                })
+                if has_large_data:
+                    for item in tool_result_content:
+                        if item["type"] == "text":
+                            yield {"type": "text", "content": item["text"]}
+                        elif item["type"] == "image":
+                            yield {"type": "image", "data": item["source"]["data"], "media_type": item["source"]["media_type"]}
+                        elif item["type"] == "audio":
+                            yield {"type": "audio", "data": item["data"], "media_type": item["media_type"]}
+                        elif item["type"] == "blob":
+                            yield {"type": "blob", "uri": item["uri"], "data": item["data"], "media_type": item["media_type"]}
+                else:
+                    anthropic_content = []
+                    for item in tool_result_content:
+                        if item["type"] == "text":
+                            anthropic_content.append(item)
+                    
+                    self.messages.append({
+                        "role": "user",
+                        "content": [
+                            {
+                                "type": "tool_result",
+                                "tool_use_id": tool_use_id,
+                                "content": anthropic_content,
+                            }
+                        ],
+                    })
+
+            if has_large_data:
+                break
+
             remaining = self.remaining_tokens()
             if remaining <= 20:
                 raise OutOfCredits()
-            with self.anthropic.messages.stream(
+            async with self.anthropic.messages.stream(
                 model="claude-haiku-4-5-20251001",
                 max_tokens=self.max_tokens(),
                 messages=self.messages,
                 tools=available_tools,
                 system=system
             ) as followup:
-                for event in followup:
+                async for event in followup:
                     if event.type == "content_block_delta" and event.delta.type == "text_delta":
                         tokens = len(enc.encode(event.delta.text))
                         self.estimated_output_tokens += tokens
                         if self.estimated_output_tokens >= self.remaining_tokens() - 20:
-                            followup.close()
+                            await followup.close()
                             raise OutOfCredits()
-                        yield event.delta.text
+                        yield {"type": "text", "content": event.delta.text}
 
-                assistant_msg = followup.get_final_message()
+                assistant_msg = await followup.get_final_message()
                 self.messages.append({
                     "role": assistant_msg.role,
                     "content": assistant_msg.content
@@ -329,16 +385,15 @@ async def websocket_chat(id: str, websocket: WebSocket, max_tokens: str = Query(
 
             try:
                 async for chunk in client.process_query_stream(data):
-                    await websocket.send_json({
-                        "type": "token",
-                        "content": chunk
-                    })
+                    await websocket.send_json(chunk)
             except OutOfCredits:
                 await websocket.send_json({"type": "402", "message": create_response(user["user_id"])}) #type: ignore
             except ToolError as e:
                 await websocket.send_json({"type": "error", "message": str(e)})
-            except:
-                await websocket.send_json({"type": "error", "message": "An internal server error occurred."})
+            except Exception as e:
+                import traceback
+                traceback.print_exc()
+                await websocket.send_json({"type": "error", "message": f"An internal server error occurred: {str(e)}"})
 
             await websocket.send_json({"type": "end"})
 

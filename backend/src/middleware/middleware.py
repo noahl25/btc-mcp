@@ -10,7 +10,6 @@ load_dotenv()
 
 async def creator_session(request: Request):
     token = request.cookies.get("jwt")
-    print(token)
     if not token:
         return None
     try:

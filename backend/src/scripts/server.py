@@ -1,33 +1,29 @@
-import os
-
-TMP_FILE_PATH = "mcp_shared.txt"
-
-@mcp.tool() #type: ignore
-async def write_tmp_file(content: str) -> str:
-    """Write text content to a shared file in /tmp.
-
-    Args:
-        content: The text to write into the shared file.
-
-    Returns:
-        A confirmation message with the file path.
-    """
-    os.makedirs("/tmp", exist_ok=True)
-    with open(TMP_FILE_PATH, "w", encoding="utf-8") as f:
-        f.write(content)
-    return f"Wrote {len(content)} characters to {TMP_FILE_PATH}."
-
+import numpy as np #type: ignore
+from PIL import Image #type: ignore
+import io
+from mcp.types import ImageContent
 
 @mcp.tool() #type: ignore
-async def read_tmp_file() -> str:
-    """Read the contents of the shared file in /tmp.
-
-    Returns:
-        The file's contents, or a message if it does not exist.
+def generate_noise_image(
+    width: int = 50,
+    height: int = 50
+):
     """
-    if not os.path.exists(TMP_FILE_PATH):
-        return f"No file found at {TMP_FILE_PATH}. Use write_tmp_file first."
+    Generate a noise image and return it as ImageContent.
+    """
+    # Create RGB noise
+    noise = np.random.randint(
+        0, 256, (height, width, 3), dtype=np.uint8
+    )
 
-    with open(TMP_FILE_PATH, "r", encoding="utf-8") as f:
-        return f.read()
+    img = Image.fromarray(noise, "RGB")
 
+    # Encode as PNG
+    buf = io.BytesIO()
+    img.save(buf, format="PNG")
+
+    return ImageContent(
+        type="image",
+        data=str(buf.getvalue()),
+        mimeType="image/png"
+    )

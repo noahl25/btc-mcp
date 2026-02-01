@@ -86,6 +86,9 @@ async def lightspark_webhook(request: Request):
 @user.post("/set-as-paid")
 async def set_as_paid(id: str):
 
+    if os.getenv("ENV") != "development":
+        return
+
     payments = get_db()["payments"]
     payment_db = await payments.find_one({"invoice_id": id})
     if not payment_db:

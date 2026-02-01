@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Response, Request, HTTPException
+from fastapi import APIRouter, Response, Request, Depends
 import secrets
 import jwt
 from lnurl import url_encode
@@ -9,6 +9,7 @@ import hashlib
 import time
 from dotenv import load_dotenv
 import os
+from src.middleware.middleware import creator_session
 
 creator = APIRouter()
 
@@ -79,3 +80,8 @@ async def check_session(k1: str, response: Response):
         return { "status": "Invalid k1" }
     return { "status": "pending" }
     
+@creator.get("/session")
+async def session(session = Depends(creator_session)):
+    if not session:
+        return { "authenticated": False }
+    return { "authenticated": True }

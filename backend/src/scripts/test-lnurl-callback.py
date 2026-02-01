@@ -4,9 +4,9 @@ import hashlib
 priv = PrivateKey()
 pub = priv.public_key.format().hex()
 
-k1 = "82d5fc9d9a1569a563273817438832a18efab86c9accd27bf6a63fb880221048"
+k1 = "3c42c46ece6b34589ea6ac1e965ea5d4c612a20fba2af57868fcf492c20ced85"
 
-print(str(priv))
+print(priv.secret.hex())
 print(pub)
 
 msg = hashlib.sha256(bytes.fromhex(k1)).digest()

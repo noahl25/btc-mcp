@@ -2,6 +2,9 @@ import type { Metadata } from "next";
 import { DM_Sans } from "next/font/google";
 import "./globals.css";
 import Navbar from "@/components/Navbar";
+import { cookies } from "next/headers";
+import axios from "axios";
+import { AuthProvider } from "@/components/AuthContext";
 
 const dmSans = DM_Sans({
 	variable: "--font-default",
@@ -27,19 +30,22 @@ export const metadata: Metadata = {
 	},
 };
 
-export default function RootLayout({
+export default async function RootLayout({
 	children,
 }: Readonly<{
 	children: React.ReactNode;
 }>) {
+
 	return (
 		<html lang="en">
 			<body
 				className={`${dmSans.variable} antialiased overflow-x-hidden`}
 			>
-				<Navbar/>
-				<div className="inset-0 -z-1 absolute" style={{ background: "radial-gradient(120% 70% at 50% 0%, #4a8fdda8 30%, #00000000" }} />
-				{children}
+				<AuthProvider initial={true}>
+					<Navbar/>
+					<div className="inset-0 -z-1 absolute" style={{ background: "radial-gradient(120% 70% at 50% 0%, #4a8fdda8 30%, #00000000" }} />
+					{children}
+				</AuthProvider>
 			</body>
 		</html>
 	);

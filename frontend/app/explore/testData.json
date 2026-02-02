@@ -1,0 +1,97 @@
+[
+    {
+        "title": "Weather AI",
+        "description": "Provides weather forecasts and alerts.",
+        "tools": {
+            "get_current_weather": "Gets the current weather for a given location.\n\nArgs:\n    location (str): Name of the city or coordinates.\n\nReturns:\n    dict: Current weather data including temperature, humidity, and conditions.",
+            "get_forecast": "Retrieves a 7-day weather forecast for a location.\n\nArgs:\n    location (str): Name of the city or coordinates.\n\nReturns:\n    list: Daily forecast data with high/low temperatures and conditions."
+        },
+        "cost_per_token": 0.05,
+        "creator": "user_pubkey_1",
+        "port": 8001,
+        "id": "agent_001",
+        "private": false,
+        "date": "2026-02-01T20:00:00Z",
+        "embedding": [
+            0.01,
+            0.02,
+            0.03
+        ]
+    },
+    {
+        "title": "Finance Tracker",
+        "description": "Tracks expenses and income for personal finance.",
+        "tools": {
+            "add_transaction": "Adds a new financial transaction.\n\nArgs:\n    amount (float): The transaction amount.\n    category (str): Category of the transaction.\n    date (str): Date of the transaction in YYYY-MM-DD format.\n\nReturns:\n    bool: True if the transaction was added successfully.",
+            "generate_report": "Generates a monthly financial report.\n\nArgs:\n    month (int): Month for the report.\n    year (int): Year for the report.\n\nReturns:\n    dict: Summary of income, expenses, and balance for the month."
+        },
+        "cost_per_token": 0.07,
+        "creator": "user_pubkey_2",
+        "port": 8002,
+        "id": "agent_002",
+        "private": true,
+        "date": "2026-02-01T20:05:00Z",
+        "embedding": [
+            0.04,
+            0.05,
+            0.06
+        ]
+    },
+    {
+        "title": "Recipe Helper",
+        "description": "Suggests recipes based on available ingredients.",
+        "tools": {
+            "find_recipe": "Finds recipes matching given ingredients.\n\nArgs:\n    ingredients (list): List of ingredient names.\n\nReturns:\n    list: Recipes that can be made with the given ingredients.",
+            "nutrition_info": "Provides nutrition information for a recipe.\n\nArgs:\n    recipe_id (str): Unique ID of the recipe.\n\nReturns:\n    dict: Nutritional breakdown including calories, protein, fat, and carbs."
+        },
+        "cost_per_token": 0.03,
+        "creator": "user_pubkey_3",
+        "port": 8003,
+        "id": "agent_003",
+        "private": false,
+        "date": "2026-02-01T20:10:00Z",
+        "embedding": [
+            0.07,
+            0.08,
+            0.09
+        ]
+    },
+    {
+        "title": "Language Tutor",
+        "description": "Helps users learn new languages interactively.",
+        "tools": {
+            "practice_vocab": "Tests vocabulary knowledge with quizzes.\n\nArgs:\n    language (str): Target language.\n    level (str): Difficulty level (beginner, intermediate, advanced).\n\nReturns:\n    dict: Quiz questions and correct answers.",
+            "grammar_check": "Checks grammar of a given text.\n\nArgs:\n    text (str): Input text to check.\n    language (str): Language of the text.\n\nReturns:\n    dict: Detected grammar errors and suggestions."
+        },
+        "cost_per_token": 0.06,
+        "creator": "user_pubkey_4",
+        "port": 8004,
+        "id": "agent_004",
+        "private": true,
+        "date": "2026-02-01T20:15:00Z",
+        "embedding": [
+            0.10,
+            0.11,
+            0.12
+        ]
+    },
+    {
+        "title": "Stock Analyzer",
+        "description": "Analyzes stock market trends and predicts prices.Analyzes stock market trends and predicts prices.Analyzes stock market trends and predicts prices.Analyzes stock market trends and predicts prices.Analyzes stock market trends and predicts prices.Analyzes stock market trends and predicts prices.Analyzes stock market trends and predicts prices. Analyzes stock market trends and predicts prices.Analyzes stock market trends and predicts prices.Analyzes stock market trends and predicts prices.Analyzes stock market trends and predicts prices.",
+        "tools": {
+            "get_stock_price": "Returns the current price of a given stock.\n\nArgs:\n    symbol (str): Stock ticker symbol.\n\nReturns:\n    float: Current stock price.",
+            "predict_trend": "Predicts stock price trend based on historical data.\n\nArgs:\n    symbol (str): Stock ticker symbol.\n    days (int): Number of days to predict.\n\nReturns:\n    str: Predicted trend: 'up', 'down', or 'stable'."
+        },
+        "cost_per_token": 0.08,
+        "creator": "user_pubkey_5",
+        "port": 8005,
+        "id": "agent_005",
+        "private": false,
+        "date": "2026-02-01T20:20:00Z",
+        "embedding": [
+            0.13,
+            0.14,
+            0.15
+        ]
+    }
+]

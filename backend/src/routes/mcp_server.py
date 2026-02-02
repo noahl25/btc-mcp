@@ -6,14 +6,16 @@ from fastapi import APIRouter, UploadFile, File, Form, Depends
 from fastapi.responses import JSONResponse
 import ast
 import shutil
-
-from src.l402.l402 import get_usd_amount_in_sats
+from datetime import datetime, timezone
 from src.database.mongo import get_db
 from src.middleware.middleware import creator_session
+import json
+from src.database.embed import embed
 
 os.environ["DOCKER_BUILDKIT"] = "0"
 
 mcp_server = APIRouter()
+
 client = docker.from_env()
 
 BUILD_DIR = "builds"
@@ -102,6 +104,26 @@ async def deploy_mcp(title: str = Form(...), description: str = Form(...), cpu: 
     with open(requirements_path, "wb") as f:
         f.write((await requirements.read() if requirements is not None else "".encode(encoding="utf-8")) + "\n\nmcp\nuvicorn[standard]".encode(encoding="utf-8"))
 
+    cpuCostPerPercent = 0.001
+    memoryCostPerMB = 0.0001
+    storageCostPerMB = 0.00005
+    totalCost = (cpu * cpuCostPerPercent) + (ram * memoryCostPerMB) + (tmpfs * storageCostPerMB)
+
+    await get_db()["agents"].insert_one({
+        "title": title,
+        "description": description,
+        "tools": tools,
+        "cost_per_token": totalCost,
+        "creator": session["pubkey"],
+        "port": 1024,
+        "id": unique_id,
+        "private": private,
+        "date": datetime.now(tz=timezone.utc),
+        "embedding": embed(title, description, json.dumps(tools))
+    })
+
+    return
+
     dockerfile = f"""FROM python:3.12-slim
 WORKDIR /app
 COPY server.py /app/server.py
@@ -167,11 +189,6 @@ CMD ["python", "server.py"]
     port_info = container.attrs['NetworkSettings']['Ports']
     host_port = port_info['8080/tcp'][0]['HostPort']
 
-    cpuCostPerPercent = 0.0005
-    memoryCostPerMB = 0.0001
-    storageCostPerMB = 0.00005
-    totalCost = (cpu * cpuCostPerPercent) + (ram * memoryCostPerMB) + (tmpfs * storageCostPerMB)
-
     await get_db()["agents"].insert_one({
         "title": title,
         "description": description,
@@ -180,7 +197,9 @@ CMD ["python", "server.py"]
         "creator": session["pubkey"],
         "port": host_port,
         "id": unique_id,
-        "private": private
+        "private": private,
+        "date": datetime.now(tz=timezone.utc),
+        "embedding": embed(title, description, json.dumps(tools))
     })
 
     return JSONResponse({ "status": "success" }, status_code=200)

@@ -7,6 +7,7 @@ from src.routes.mcp_server import mcp_server
 from src.routes.mcp_client import mcp_client
 from src.routes.creator import creator
 from src.routes.user import user
+from src.routes.agents import agents
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -27,6 +28,7 @@ app.include_router(mcp_server, prefix="/api")
 app.include_router(mcp_client, prefix="/ws")
 app.include_router(creator, prefix="/creator")
 app.include_router(user, prefix="/user")
+app.include_router(agents, prefix="/api")
 
 @app.get("/health")
 async def health():

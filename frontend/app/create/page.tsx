@@ -7,6 +7,7 @@ import axios, { AxiosResponse } from "axios";
 import { useRouter } from 'next/navigation';
 import QRCode from "qrcode";
 import React from 'react';
+import { useAuth } from '@/components/AuthContext';
 
 type FileInputProps = {
     icon: React.ReactNode,
@@ -346,6 +347,8 @@ const AuthenticationScreen = ({ close }: { close: () => void }) => {
     const [k1, setK1] = useState<string | null>(null);
     const canvasRef = useRef<HTMLCanvasElement>(null);
 
+    const { setAuthenticated } = useAuth();
+
     useEffect(() => {
         async function fetchLNURL() {
             const res = await axios.get("http://localhost:8000/creator/creator-signin", {
@@ -366,11 +369,13 @@ const AuthenticationScreen = ({ close }: { close: () => void }) => {
         if (!k1) return;
 
         const id = setInterval(async () => {
-            const res = await axios.get(`http://localhost:8000/creator/creator-signin/${k1}`, {
+            const res = await axios.get("http://localhost:8000/creator/creator-poll", {
+                params: { k1 },
                 withCredentials: true
             });
             if (res.data.status === "success") {
                 setComplete(true);
+                setAuthenticated(true);
                 clearInterval(id);
             }
         }, 3000);
@@ -485,9 +490,9 @@ export default function Create() {
 
     useEffect(() => {
 
-        const cpuCostPerPercent = 0.0005;
+        const cpuCostPerPercent = 0.001;
         const memoryCostPerMB = 0.0001;
-        const storageCostPerMB = 0.00001;
+        const storageCostPerMB = 0.000025;
 
         const totalCost = Math.max((cpu * cpuCostPerPercent) + (memory * memoryCostPerMB) + (storage * storageCostPerMB), 0.1);
         setSats(totalCost);
@@ -591,9 +596,9 @@ export default function Create() {
                     onSubmit();
                 }}/>
             }
-            <div className="fixed z-10 md:px-20 flex items-center justify-center flex-col md:items-end left-0 shadow-2xl/50 right-0 bottom-0 h-[100px] bg-white">
-                <div className="text-lg text-gray-800">Estimated cost per token: <span className="font-bold text-gray-800">{sats.toFixed(2)} credits</span></div>
-                <div className="text-lg text-gray-800">Your cut per token: <span className="font-bold text-gray-800">0.05 credits</span></div>
+            <div className="fixed z-10 px-4 md:px-20 flex items-center justify-center flex-col md:items-end left-0 shadow-2xl/50 right-0 bottom-0 h-[100px] bg-white">
+                <div className="text-sm md:text-lg text-gray-800">Estimated cost per input/output token: <span className="font-bold text-gray-800">{(sats/5).toFixed(2)}/{sats.toFixed(2)} credits</span></div>
+                <div className="text-sm md:text-lg text-gray-800">Your cut per input/output token: <span className="font-bold text-gray-800">0.01/0.05 credits</span></div>
             </div>
             <div className="mx-auto w-fit text-[40px] sm:text-[60px] text-white">
                 <div>Create an agent.</div>

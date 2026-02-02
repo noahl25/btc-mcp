@@ -21,5 +21,16 @@ declare global {
             data: string, 
             filename: string,
         }
+    
 
+    type Agent = {
+        title: string,
+        description: string,
+        tools: Record<string, string>,
+        cost_per_token: number,
+        creator: string,
+        id: string,
+        private: boolean,
+        date: string
+    }
 }

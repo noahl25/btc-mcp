@@ -29,6 +29,9 @@ class ToolError(Exception):
 class OutOfCredits(Exception):
     pass
 
+class NotEnoughTokensForInput(Exception):
+    pass
+
 enc = tiktoken.get_encoding("cl100k_base")
 
 class MCPClient:
@@ -53,7 +56,7 @@ class MCPClient:
     
     async def update_user_balance(self, new_balance: int):
         users = get_db()["users"]
-        await users.update_one({"user_id": self.user_id}, {"$set": {"balance": new_balance}})
+        await users.update_one({"user_id": self.user_id}, {"$set": {"balance": max(0, new_balance)}})
 
     async def update_creator_credit(self, new_balance: int):
         creators = get_db()["creators"]
@@ -125,6 +128,9 @@ class MCPClient:
                     return TextBlockParam(type="text", text=f"User attempted to add file which was unable to be parsed: {str(e)}")
             return None
         
+        if self.balance - self.anthropic.messages.count_tokens(messages=query, model="claude-haiku-4-5-20251001") * self.cost_per_token / 5 < 50:
+            raise NotEnoughTokensForInput()
+
         remaining = self.remaining_tokens()
         if remaining <= 20:
             raise OutOfCredits()
@@ -163,13 +169,6 @@ class MCPClient:
         ) as stream:
             async for event in stream:
                 if event.type == "content_block_delta" and event.delta.type == "text_delta":
-                    tokens = len(enc.encode(event.delta.text))
-                    self.estimated_output_tokens += tokens
-
-                    if self.estimated_output_tokens >= self.remaining_tokens() - 20:
-                        await stream.close()
-                        raise OutOfCredits()
-
                     yield {"type": "text", "content": event.delta.text}
 
             assistant_msg = await stream.get_final_message()
@@ -178,7 +177,9 @@ class MCPClient:
                 "content": assistant_msg.content
             })
             self.actual_tokens = assistant_msg.usage.output_tokens
+            input_tokens = assistant_msg.usage.input_tokens
             self.balance -= self.actual_tokens * self.cost_per_token
+            self.balance -= input_tokens * (self.cost_per_token / 5)
             await self.update_user_balance(self.balance)
             await self.update_creator_credit(self.actual_tokens * self.cost_per_token)
 
@@ -191,7 +192,6 @@ class MCPClient:
             if not new_tool_uses:
                 break
 
-            has_large_data = False
             for block in new_tool_uses:
                 tool_name = block.name #type: ignore
                 tool_args = block.input #type: ignore
@@ -213,7 +213,6 @@ class MCPClient:
                             "text": content_block.text  # type: ignore
                         })
                     elif block_type == 'image':
-                        has_large_data = True
                         tool_result_content.append({
                             "type": "image",
                             "source": {
@@ -223,7 +222,6 @@ class MCPClient:
                             }
                         })
                     elif block_type == 'audio':
-                        has_large_data = True
                         tool_result_content.append({
                             "type": "audio",
                             "data": content_block.data,  # type: ignore
@@ -243,7 +241,6 @@ class MCPClient:
                                 "text": resource.text  # type: ignore
                             })
                         elif hasattr(resource, 'blob'):
-                            has_large_data = True
                             mime_type = getattr(resource, 'mimeType', 'application/octet-stream')
                             tool_result_content.append({
                                 "type": "blob",
@@ -262,35 +259,39 @@ class MCPClient:
                             "text": str(content_block)
                         })
 
-                if has_large_data:
-                    for item in tool_result_content:
-                        if item["type"] == "text":
-                            yield {"type": "text", "content": item["text"]}
-                        elif item["type"] == "image":
-                            yield {"type": "image", "data": item["source"]["data"], "media_type": item["source"]["media_type"]}
-                        elif item["type"] == "audio":
-                            yield {"type": "audio", "data": item["data"], "media_type": item["media_type"]}
-                        elif item["type"] == "blob":
-                            yield {"type": "blob", "uri": item["uri"], "data": item["data"], "media_type": item["media_type"]}
-                else:
-                    anthropic_content = []
-                    for item in tool_result_content:
-                        if item["type"] == "text":
-                            anthropic_content.append(item)
-                    
-                    self.messages.append({
-                        "role": "user",
-                        "content": [
-                            {
-                                "type": "tool_result",
-                                "tool_use_id": tool_use_id,
-                                "content": anthropic_content,
-                            }
-                        ],
-                    })
-
-            if has_large_data:
-                break
+                anthropic_content = []
+                for item in tool_result_content:
+                    if item["type"] == "text":
+                        anthropic_content.append(item)
+                    elif item["type"] == "image":
+                        yield {"type": "image", "data": item["source"]["data"], "media_type": item["source"]["media_type"]}
+                        anthropic_content.append({
+                            "type": "text",
+                            "text": f"Created image: {item['source']['media_type']}"
+                        })
+                    elif item["type"] == "audio":
+                        yield {"type": "audio", "data": item["data"], "media_type": item["media_type"]}
+                        anthropic_content.append({
+                            "type": "text",
+                            "text": f"Created audio: {item['media_type']}"
+                        })
+                    elif item["type"] == "blob":
+                        yield {"type": "blob", "uri": item["uri"], "data": item["data"], "media_type": item["media_type"]}
+                        anthropic_content.append({
+                            "type": "text",
+                            "text": f"Created blob: {item['media_type']} (uri: {item['uri']})"
+                        })
+                
+                self.messages.append({
+                    "role": "user",
+                    "content": [
+                        {
+                            "type": "tool_result",
+                            "tool_use_id": tool_use_id,
+                            "content": anthropic_content,
+                        }
+                    ],
+                })
 
             remaining = self.remaining_tokens()
             if remaining <= 20:
@@ -304,12 +305,7 @@ class MCPClient:
             ) as followup:
                 async for event in followup:
                     if event.type == "content_block_delta" and event.delta.type == "text_delta":
-                        tokens = len(enc.encode(event.delta.text))
-                        self.estimated_output_tokens += tokens
-                        if self.estimated_output_tokens >= self.remaining_tokens() - 20:
-                            await followup.close()
-                            raise OutOfCredits()
-                        yield {"type": "text", "content": event.delta.text}
+                        yield { "type": "text", "content": event.delta.text}
 
                 assistant_msg = await followup.get_final_message()
                 self.messages.append({
@@ -317,7 +313,9 @@ class MCPClient:
                     "content": assistant_msg.content
                 })
                 self.actual_tokens = assistant_msg.usage.output_tokens
+                input_tokens = assistant_msg.usage.input_tokens
                 self.balance -= self.actual_tokens * self.cost_per_token
+                self.balance -= input_tokens * (self.cost_per_token / 5)
                 await self.update_user_balance(self.balance)
                 await self.update_creator_credit(self.actual_tokens * self.cost_per_token)
 
@@ -390,6 +388,8 @@ async def websocket_chat(id: str, websocket: WebSocket, max_tokens: str = Query(
                 await websocket.send_json({"type": "402", "message": create_response(user["user_id"])}) #type: ignore
             except ToolError as e:
                 await websocket.send_json({"type": "error", "message": str(e)})
+            except NotEnoughTokensForInput as e:
+                await websocket.send_json({"type": "error", "message": "Not enough credits to support input size."})
             except Exception as e:
                 import traceback
                 traceback.print_exc()

@@ -5,6 +5,7 @@ import httpx
 from src.database.mongo import get_db
 from src.database.redis import redis
 from dotenv import load_dotenv
+import secrets
 
 load_dotenv()
 
@@ -38,7 +39,38 @@ OFFERS = [
         "type": "top-up",
         "payment_method": "lightning",
         "balance": 100000
+    },
+    {
+        "id": "b5bc8ce8-a93e-4ef2-991a-d7c0700af962",
+        "title": "Stake 100 credits",
+        "description": "Stake 100 credits to your specified MCP server.",
+        "amount": 5,
+        "currency": "USD",
+        "type": "stake",
+        "payment_method": "lightning",
+        "balance": 100
+    },
+        {
+        "id": "b5bc82e8-a93e-4ef2-9914-d7c3750af962",
+        "title": "Stake 1000 credits",
+        "description": "Stake 1000 credits to your specified MCP server.",
+        "amount": 50,
+        "currency": "USD",
+        "type": "stake",
+        "payment_method": "lightning",
+        "balance": 1000
+    },
+    {
+        "id": "8fd9b383-0325-4461-bf35-45a278bbc025",
+        "title": "Stake 10000 credits",
+        "description": "Stake 10000 credits to your specified MCP server.",
+        "amount": 500,
+        "currency": "USD",
+        "type": "stake",
+        "payment_method": "lightning",
+        "balance": 10000
     }
+
 ]
 
 def get_offer_by_id(offer_id: str):
@@ -47,13 +79,14 @@ def get_offer_by_id(offer_id: str):
             return offer
     return None
 
-def create_response(authorization_token: str):
+def create_response(authorization_token: str, type: str, description: str = ""):
     return {
         "version": "0.1.0",
-        "offers": OFFERS,
-        "payment_request_url": "http://localhost:8000/user/payment",
+        "offers": [offer for offer in OFFERS if offer["type"] == type],
+        "payment_request_url": f"http://localhost:8000/api/payments/{type}",
         "authorization_token": authorization_token,
-        "terms_url": "http://localhost:3000/terms"
+        "terms_url": "http://localhost:3000/terms",
+        "description": description
     }
 
 async def get_usd_amount_in_sats(cents: int):
@@ -70,7 +103,7 @@ async def get_usd_amount_in_sats(cents: int):
     await redis.setex("btc:sats_per_cent", 600, sats_per_cent)
     return int(sats_per_cent * cents)
 
-async def create_lightning_invoice(user_id, offer, expiry):    
+async def create_lightning_invoice(user_id, offer, expiry, agent_id=None):    
 
     ls_client_id = os.getenv("LIGHTSPARK_ID")
     ls_secret = os.getenv("LIGHTSPARK_SECRET")
@@ -95,11 +128,14 @@ async def create_lightning_invoice(user_id, offer, expiry):
         memo=offer["title"]
     )
     payments = get_db()["payments"]
-    await payments.insert_one({
+    payment_record = {
         "invoice_id": invoice,
         "user_id": user_id,
         "offer_id": offer["id"],
         "completed": False
-    })
+    }
+    if agent_id:
+        payment_record["agent_id"] = agent_id
+    await payments.insert_one(payment_record)
 
     return invoice

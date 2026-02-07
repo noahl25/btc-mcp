@@ -1,13 +1,12 @@
 import AgentView from "@/components/AgentView";
-import testData from "./testData.json"
+import axios from "axios";
 
+export default async function Explore() {
 
-export default function Explore() {
-
-    const agents = testData as unknown as Agent[];
+    const agents = (await axios.get("http://localhost:8000/api/agents?agents=&skip=0")).data;
 
     return (
-        <div className="w-full relative pt-[100px]">
+        <div className="w-full pt-[100px]">
             <div className="mx-auto w-fit text-[40px] sm:text-[60px] text-white">
                 <div>Explore agents.</div>
             </div>

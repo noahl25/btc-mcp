@@ -1,5 +1,6 @@
 'use client'
 
+import { Bitcoin, Trophy } from "lucide-react";
 import { motion } from "motion/react";
 import { useRouter } from "next/navigation";
 
@@ -25,9 +26,13 @@ export default function AgentCard({ agent, index }: { agent: Agent, index: numbe
                         ))
                     }
                 </div>
+                <div className="mt-3 text-xl text-[#2c81e3] font-semibold gap-1 flex items-center justify-start">
+                    {agent.staked}
+                    <Trophy size={16}/>
+                </div>
             </div>
             <div className="flex items-center justify-between mt-4 pt-3 px-6 pt-5 pb-5 border-t-2 border-gray-400/40">
-                <span className="text-sm text-gray-500">
+                <span className="text-sm text-gray-500 max-w-[30%] truncate">
                     by <span className="font-medium text-gray-700">{agent.creator}</span>
                 </span>
                 <span className="text-sm font-medium text-[#2c81e3]">

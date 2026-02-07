@@ -4,7 +4,7 @@ import hashlib
 priv = PrivateKey()
 pub = priv.public_key.format().hex()
 
-k1 = "3c42c46ece6b34589ea6ac1e965ea5d4c612a20fba2af57868fcf492c20ced85"
+k1 = "b69326a0f6fbdbc6d38da315a3934c1580d2f12260b02ae73ed78ac808b94577"
 
 print(priv.secret.hex())
 print(pub)

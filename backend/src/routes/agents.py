@@ -1,7 +1,7 @@
 from src.database.embed import embed_query
 from src.database.mongo import get_db
 from fastapi import APIRouter
-from typing import Optional
+from typing import Literal
 
 agents = APIRouter()
 
@@ -18,9 +18,10 @@ async def vector_search(query: str, limit=50):
             }
         },
         {
-            "$addFields": {
+            "$project": {
+                "_id": 0,
                 "port": 0,
-                "embeddings": 0
+                "embedding": 0
             }
         }
         # {
@@ -30,16 +31,29 @@ async def vector_search(query: str, limit=50):
         # }
     ]
     
-    return await (await get_db()["agents"].aggregate(pipeline)).to_list()
+    cursor = await get_db()["agents"].aggregate(pipeline)
+    return await cursor.to_list(length=limit)
 
 @agents.get("/agents")
-async def get(query: Optional[str] = None, skip: int = 0):
+async def get(query: str | None = None, sort_by: Literal["date", "staked"] = "date", skip: int = 0, exact_search: bool = False):
     if query and query != "":
-        return await vector_search(query.strip())
+        if exact_search:
+            pipeline = {
+                "$or": [
+                    {"title": {"$regex": query, "$options": "i"}},
+                    {"description": {"$regex": query, "$options": "i"}},
+                    {}
+                ]
+            }
+            cursor = get_db()["agents"].find(pipeline, {"_id": 0, "port": 0, "embeddings": 0}).sort(sort_by, -1 if sort_by == "staked" else 1).skip(skip).limit(50)
+            return await cursor.to_list(length=50)
+        else:
+            res = await vector_search(query.strip())
+            return res
     else:
-        cursor = get_db()["agents"].find().sort("date", 1).skip(skip).limit(50)
-        return await cursor.to_list(length=50) 
+        cursor = get_db()["agents"].find({}, {"_id": 0, "port": 0, "embeddings": 0}).sort(sort_by, -1 if sort_by == "staked" else 1).skip(skip).limit(50)
+        return await cursor.to_list(length=50)
     
 @agents.get("/agents/{id}")
-async def get_by_id(id: int):
-    return get_db()["agents"].find_one({ "id": id }, { "port": 0, "embeddings": 0 })
+async def get_by_id(id: str):
+    return await get_db()["agents"].find_one({ "id": id }, { "_id": 0, "port": 0, "embeddings": 0 })

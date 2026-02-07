@@ -56,7 +56,7 @@ async def callback(k1: str, key: str, sig: str):
     return { "status": "success" }
 
 @creator.post("/creator-poll")
-async def check_session(response: Response, k1: str = Body(...), ):
+async def check_session(response: Response, k1: str = Body(..., embed=True)):
     state = await redis.get(f"lnurl-k1-{k1}")
     
     if state and state.startswith("auth:"):

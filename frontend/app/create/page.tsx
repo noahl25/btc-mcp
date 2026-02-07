@@ -8,6 +8,7 @@ import { useRouter } from 'next/navigation';
 import QRCode from "qrcode";
 import React from 'react';
 import { useAuth } from '@/components/AuthContext';
+import Loader from '@/components/Loader';
 
 type FileInputProps = {
     icon: React.ReactNode,
@@ -115,150 +116,7 @@ const SteppedSlider = ({ steps, unit, setValue }: { steps: number[], unit: strin
     );
 }
 
-const Loader = ({ state }: { state: "loading" | "complete" | "failed" }) => {
 
-    const checkAnimationControls = useAnimationControls();
-    const xAnimationControls = useAnimationControls();
-    const [showIcon, setShowIcon] = useState(false);
-
-    const dotVariants = {
-        loading: (i: number) => ({
-            y: [0, -12, 0],
-            backgroundColor: "#2c81e3",
-            transition: {
-                y: {
-                    repeat: Infinity,
-                    duration: 1,
-                    ease: "easeInOut" as const,
-                    delay: i * 0.15,
-                },
-            },
-        }),
-        complete: {
-            y: 0,
-            scale: [1, 1.3, 0],
-            backgroundColor: "#2c81e3",
-            transition: {
-                duration: 0.4,
-                ease: "easeOut" as const,
-            },
-        },
-        failed: {
-            y: 0,
-            scale: [1, 1.3, 0],
-            backgroundColor: "#ef4444",
-            transition: {
-                duration: 0.4,
-                ease: "easeOut" as const,
-            },
-        },
-    };
-
-    useEffect(() => {
-        if (state === "complete") {
-            setTimeout(() => {
-                setShowIcon(true);
-                checkAnimationControls.start({
-                    pathLength: 1,
-                    opacity: 1,
-                    transition: {
-                        pathLength: { type: "spring", duration: 0.8, bounce: 0 },
-                        opacity: { duration: 0.01 },
-                    },
-                });
-            }, 400);
-        } 
-        else if (state === "failed") {
-            setTimeout(() => {
-                setShowIcon(true);
-                xAnimationControls.start({
-                    pathLength: 1,
-                    opacity: 1,
-                    transition: {
-                        pathLength: { type: "spring", duration: 0.8, bounce: 0 },
-                        opacity: { duration: 0.01 },
-                    },
-                });
-            }, 400);
-        } 
-        else {
-            setShowIcon(false);
-        }
-    }, [state]);
-
-    return (
-        <div className="relative size-16 flex items-center justify-center">
-            <div className={`flex gap-2 items-center justify-center ${showIcon ? 'hidden' : ''}`}>
-                {[0, 1, 2].map((i) => (
-                    <motion.div
-                        key={i}
-                        custom={i}
-                        variants={dotVariants}
-                        animate={state}
-                        className="size-3 rounded-full bg-[#2c81e3]"
-                    />
-                ))}
-            </div>
-            <motion.div
-                initial={{ scale: 0, opacity: 0 }}
-                animate={state === "complete" && showIcon ? { scale: 1, opacity: 1 } : {}}
-                transition={{ type: "spring", duration: 0.5, bounce: 0.4 }}
-                className="absolute inset-0 flex items-center justify-center"
-            >
-                <div className="size-14 rounded-full bg-[#2c81e3]/10 flex items-center justify-center">
-                    <motion.svg
-                        xmlns="http://www.w3.org/2000/svg"
-                        width="32"
-                        height="32"
-                        viewBox="0 0 24 24"
-                        fill="none"
-                        stroke="#2c81e3"
-                        strokeWidth="3"
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                    >
-                        <motion.path
-                            animate={checkAnimationControls}
-                            d="M4 12 9 17 20 6"
-                            initial={{ pathLength: 0, opacity: 0 }}
-                        />
-                    </motion.svg>
-                </div>
-            </motion.div>
-            <motion.div
-                initial={{ scale: 0, opacity: 0 }}
-                animate={state === "failed" && showIcon ? { scale: 1, opacity: 1 } : {}}
-                transition={{ type: "spring", duration: 0.5, bounce: 0.4 }}
-                className="absolute inset-0 flex items-center justify-center"
-            >
-                <div className="size-14 rounded-full bg-red-500/10 flex items-center justify-center">
-                    <motion.svg
-                        xmlns="http://www.w3.org/2000/svg"
-                        width="32"
-                        height="32"
-                        viewBox="0 0 24 24"
-                        fill="none"
-                        stroke="#ef4444"
-                        strokeWidth="3"
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                    >
-                        <motion.path
-                            animate={xAnimationControls}
-                            initial={{ pathLength: 0, opacity: 0 }}
-                            d="M18 6 6 18"
-                        />
-                        <motion.path
-                            animate={xAnimationControls}
-                            initial={{ pathLength: 0, opacity: 0 }}
-                            d="m6 6 12 12"
-                        />
-                    </motion.svg>
-                </div>
-            </motion.div>
-        </div>
-    );
-}
 const SubmissionScreen = ({ state, onClose }: { state: AxiosResponse<any, any, {}> | null, onClose: () => void }) => {
 
     const [loadingState, setLoadingState] = useState<"loading" | "complete" | "failed">("loading");
@@ -274,7 +132,11 @@ const SubmissionScreen = ({ state, onClose }: { state: AxiosResponse<any, any, {
             }
         }
 
+        console.log(state)
+
     }, [state])
+
+    const router = useRouter();
 
     return (
         <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ ease: "easeInOut", duration: 0.6 }} exit={{ opacity: 0 }} className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-6">
@@ -309,7 +171,7 @@ const SubmissionScreen = ({ state, onClose }: { state: AxiosResponse<any, any, {
                             >
                                 <div className='text-gray-800 text-lg text-center mb-4'>Success!</div>
                                 <div className='flex gap-4 justify-center items-center'>
-                                    <div className="hover:scale-110 active:scale-90 py-1 px-3 cursor-pointer text-white flex gap-1.5 transition-all duration-500 ease-in-out bg-[#2c81e3a8] rounded-full items-center justify-center">
+                                    <div onClick={() => router.push(`/explore/${state?.data.message}`)} className="hover:scale-110 active:scale-90 py-1 px-3 cursor-pointer text-white flex gap-1.5 transition-all duration-500 ease-in-out bg-[#2c81e3a8] rounded-full items-center justify-center">
                                         <div className='text-sm'>See your agent</div>
                                     </div>
                                     <div onClick={onClose} className="hover:scale-110 active:scale-90 py-1 px-3 cursor-pointer text-gray-500 border-gray-500 border-2 flex gap-1.5 transition-all duration-500 ease-in-out rounded-full items-center justify-center">
@@ -355,7 +217,6 @@ const AuthenticationScreen = ({ close }: { close: () => void }) => {
                 withCredentials: true
             });
             setK1(res.data.k1);
-            console.log(res.data.k1);
             if (canvasRef.current) {
                 QRCode.toCanvas(canvasRef.current, res.data.lnurl);
                 setShowQRCode(true);
@@ -369,10 +230,10 @@ const AuthenticationScreen = ({ close }: { close: () => void }) => {
         if (!k1) return;
 
         const id = setInterval(async () => {
-            const res = await axios.get("http://localhost:8000/creator/creator-poll", {
-                params: { k1 },
-                withCredentials: true
-            });
+            const res = await axios.post("http://localhost:8000/creator/creator-poll", 
+                { k1 },
+                { withCredentials: true }
+            );
             if (res.data.status === "success") {
                 setComplete(true);
                 setAuthenticated(true);
@@ -490,9 +351,9 @@ export default function Create() {
 
     useEffect(() => {
 
-        const cpuCostPerPercent = 0.001;
+        const cpuCostPerPercent = 0.002;
         const memoryCostPerMB = 0.0001;
-        const storageCostPerMB = 0.000025;
+        const storageCostPerMB = 0.00002;
 
         const totalCost = Math.max((cpu * cpuCostPerPercent) + (memory * memoryCostPerMB) + (storage * storageCostPerMB), 0.1);
         setSats(totalCost);

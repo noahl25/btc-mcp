@@ -58,10 +58,10 @@ class MCPClient:
         users = get_db()["users"]
         await users.update_one({"user_id": self.user_id}, {"$set": {"balance": max(0, new_balance)}})
 
-    async def update_creator_credit(self, new_balance: int):
+    async def update_creator_credit(self, output_tokens: int, input_tokens: int):
         creators = get_db()["creators"]
-        print(self.actual_tokens)
-        await creators.update_one({"pubkey": self.creator_id }, {"$inc": {"credits": self.actual_tokens * 0.05}})
+        credits = (output_tokens * 0.05) + (input_tokens * 0.01)
+        await creators.update_one({"pubkey": self.creator_id }, {"$inc": {"credits": credits}})
 
     async def connect_to_streamable_http_server(self, server_url: str, headers: Optional[dict] = None):
         self._streams_context = streamable_http_client(
@@ -181,7 +181,7 @@ class MCPClient:
             self.balance -= self.actual_tokens * self.cost_per_token
             self.balance -= input_tokens * (self.cost_per_token / 5)
             await self.update_user_balance(self.balance)
-            await self.update_creator_credit(self.actual_tokens * self.cost_per_token)
+            await self.update_creator_credit(self.actual_tokens, input_tokens)
 
         while assistant_msg.stop_reason == "tool_use":
             new_tool_uses = [
@@ -317,7 +317,7 @@ class MCPClient:
                 self.balance -= self.actual_tokens * self.cost_per_token
                 self.balance -= input_tokens * (self.cost_per_token / 5)
                 await self.update_user_balance(self.balance)
-                await self.update_creator_credit(self.actual_tokens * self.cost_per_token)
+                await self.update_creator_credit(self.actual_tokens, input_tokens)
 
     
 @mcp_client.websocket("/chat/{id}")
@@ -385,11 +385,11 @@ async def websocket_chat(id: str, websocket: WebSocket, max_tokens: str = Query(
                 async for chunk in client.process_query_stream(data):
                     await websocket.send_json(chunk)
             except OutOfCredits:
-                await websocket.send_json({"type": "402", "message": create_response(user["user_id"])}) #type: ignore
+                await websocket.send_json({"type": "402", "message": create_response(user["user_id"], "top-up")}) #type: ignore
             except ToolError as e:
                 await websocket.send_json({"type": "error", "message": str(e)})
             except NotEnoughTokensForInput as e:
-                await websocket.send_json({"type": "error", "message": "Not enough credits to support input size."})
+                await websocket.send_json({"type": "error", "message": create_response(user["user_id"], "top-up", "Not enough credits to support input size.")}) #type: ignore
             except Exception as e:
                 import traceback
                 traceback.print_exc()

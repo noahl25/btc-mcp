@@ -73,23 +73,10 @@ export default function Navbar() {
                     <NavbarElement setCursorState={setCursorState} onClick={() => router.push("/")} name="Home" />
                     <NavbarElement setCursorState={setCursorState} onClick={() => router.push("/explore")} name="Explore" />
                     <NavbarElement setCursorState={setCursorState} onClick={() => router.push("/create")} name="Create" />
-                    {
-                        authenticated &&
-                        <div className="md:hidden">
-                            <NavbarElement setCursorState={setCursorState} onClick={() => router.push("/creator")} name="Creator" />
-                        </div>
-                    }
+                    <NavbarElement setCursorState={setCursorState} onClick={() => router.push("/payments")} name="Payments" />
                     <CursorBackground state={cursorState} />
                 </div>
             </div>
-            {
-                authenticated &&
-                <div className="hidden md:block absolute right-[35px] group z-20 top-[35px] py-[5px] px-[3px] bg-white/20 border-white/20 border-2 rounded-[12px]">
-                    <div className="group-hover:bg-white/20 rounded-[10px] transition-all duration-300">
-                        <NavbarElement setCursorState={() => null} onClick={() => router.push("/creator")} name="Creator Hub"  />
-                    </div>
-                </div>
-            }
         </>
     );
 }

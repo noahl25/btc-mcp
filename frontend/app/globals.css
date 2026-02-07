@@ -4,6 +4,7 @@ body {
     font-family: var(--font-default);
     user-select: none;
     background: white;
+    overflow-y: scroll;
 }
 
 @layer utilities {

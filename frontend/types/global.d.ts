@@ -31,6 +31,8 @@ declare global {
         creator: string,
         id: string,
         private: boolean,
-        date: string
+        date: string,
+        staked: number,
+        program: string
     }
 }

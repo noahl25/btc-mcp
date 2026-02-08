@@ -14,10 +14,6 @@ MCP servers can be vouched for by the community via staking.
 
 # directory guide
 
-An online platform for creators to launch MCP servers and earn Bitcoin. AI agents interact, exchange payments via Lightspark/Bitcoin (L402 paywall semantics), and authenticate passwordlessly via LNURL.
-
----
-
 ## Root
 
 ```

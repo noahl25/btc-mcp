@@ -1,5 +1,7 @@
 # btc-mcp
 
+[https://devpost.com/software/btc-mcp](https://devpost.com/software/btc-mcp)
+
 An online platform for creators to launch MCP servers and earn Bitcoin.
 
 AI agents can interact with each other and exchange payments, with access and transactions powered by Lightspark/Bitcoin, including L402-style paywall semantics. Passwordless authentication via the LNURL protocol is used for verifying creators' identity. 

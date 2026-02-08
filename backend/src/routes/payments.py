@@ -8,6 +8,7 @@ from datetime import datetime, timezone, timedelta
 import lightspark
 import os
 import bolt11
+import asyncio
 
 load_dotenv()
 
@@ -61,15 +62,16 @@ async def me(session = Depends(creator_session)):
     }, 200)
 
 @payments.post("/withdraw")
-async def withdraw(session = Depends(creator_session), invoice: str = Body(...)):
+async def withdraw(session = Depends(creator_session), invoice: str = Body(..., embed=True)):
     if not session:
         return JSONResponse({ "status": "failed", "message": "Not authenticated"}, 403)
     
     ls_client_id = os.getenv("LIGHTSPARK_ID")
     ls_secret = os.getenv("LIGHTSPARK_SECRET")
     ls_node_id = os.getenv("LIGHTSPARK_NODE")
+    ls_node_password = os.getenv("LIGHTSPARK_NODE_PASSWORD")
 
-    if not ls_client_id or not ls_secret or not ls_node_id:
+    if not ls_client_id or not ls_secret or not ls_node_id or not ls_node_password:
         return JSONResponse({}, 200)
 
     decoded = bolt11.decode(invoice)
@@ -77,6 +79,8 @@ async def withdraw(session = Depends(creator_session), invoice: str = Body(...))
         api_token_client_id=ls_client_id,
         api_token_client_secret=ls_secret,
     )
+    signing_key = client.recover_node_signing_key(ls_node_id, ls_node_password)
+    client.load_node_signing_key(ls_node_id, signing_key)
         
     stakes = get_db()["stakes"]
     seven_days_ago = datetime.now(timezone.utc) - timedelta(days=7)
@@ -100,11 +104,10 @@ async def withdraw(session = Depends(creator_session), invoice: str = Body(...))
     if to_claim_msats <= 0:
         return JSONResponse({ "status": "failed", "message": "Amount too small to withdraw."}, 400)
 
-    invoice_amount_msats = decoded.amount_msat or 0
-    if invoice_amount_msats > to_claim_msats:
-        return JSONResponse({ "status": "failed", "message": "Invoice amount exceeds claimable balance."}, 400)
+    if decoded.amount_msat or decoded.amount_msat == 0:
+        return JSONResponse({ "status": "failed", "message": "Invoice should allow payer to specify amount."}, 400)
 
-    payment = client.pay_invoice(
+    outgoing = client.pay_invoice(
         node_id=ls_node_id,
         encoded_invoice=invoice,
         timeout_secs=60,
@@ -112,12 +115,17 @@ async def withdraw(session = Depends(creator_session), invoice: str = Body(...))
         amount_msats=to_claim_msats
     )
 
-    if payment.status == "SUCCESS":
+    for _ in range(30):
+        if outgoing.status not in (lightspark.TransactionStatus.PENDING, lightspark.TransactionStatus.NOT_STARTED):  # type: ignore
+            break
+        await asyncio.sleep(2)
+        outgoing = client.get_entity(outgoing.id, lightspark.OutgoingPayment) #type: ignore
+    if outgoing.status == lightspark.TransactionStatus.SUCCESS: #type: ignore
         await stakes.delete_many({ "pubkey": session["pubkey"], "date": { "$lt": seven_days_ago } })
         await creators.update_one({ "pubkey": session["pubkey"] }, { "$set": { "credits": 0 } })
         return JSONResponse({ "status": "success"}, 200)
     else:
-        return JSONResponse({ "status": "failed", "message": "Payment failed."}, 500)
+        return JSONResponse({ "status": "failed", "message": f"Payment failed. Status: {outgoing.status}, Reason: {outgoing.failure_reason}, Details: {outgoing.failure_message}"}, 500) #type: ignore
 
 
 @payments.post("/webhook/lightspark")
@@ -186,6 +194,9 @@ async def payment_complete(id: str):
     payment_db = await payments_collection.find_one({"invoice_id": id})
     return JSONResponse({ "status": payment_db["completed"] if payment_db else False }, 200)
 
+@payments.get("/sats-to-usd/{amount}")
+async def sats_to_usd(amount: int):
+    return amount / await get_usd_amount_in_sats(1)
 
 @payments.post("/set-as-paid")
 async def set_as_paid(id: str):

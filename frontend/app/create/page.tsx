@@ -200,7 +200,7 @@ const SubmissionScreen = ({ state, onClose }: { state: AxiosResponse<any, any, {
     );
 }
 
-const AuthenticationScreen = ({ close }: { close: () => void }) => {
+const AuthenticationScreen = ({ close, onAuthenticated }: { close: () => void, onAuthenticated: () => void }) => {
 
     const [showQRCode, setShowQRCode] = useState<boolean>(false);
     const [complete, setComplete] = useState<boolean>(false);
@@ -256,7 +256,7 @@ const AuthenticationScreen = ({ close }: { close: () => void }) => {
                         opacity: { duration: 0.01 },
                     },
                 }).then(() => {
-                    setTimeout(close, 750);
+                    setTimeout(onAuthenticated, 750);
                 });
             }, 500);
             return () => clearTimeout(timeout);
@@ -451,6 +451,8 @@ export default function Create() {
             }
             {
                 showAuthenticationScreen && <AuthenticationScreen close={() => {
+                    setShowAuthenticationScreen(false);
+                }} onAuthenticated={() => {
                     setShowAuthenticationScreen(false);
                     onSubmit();
                 }}/>

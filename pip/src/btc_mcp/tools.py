@@ -7,7 +7,7 @@ from pydantic import BaseModel, field_validator
 from langchain_core.tools import tool
 import os
 import websockets
-from lightspark_client import LightsparkClient
+from .lightspark_client import LightsparkClient
 
 CACHE = f"{os.path.expanduser("~")}\\.btc-mcp"
 USER_ID: str | None = None
@@ -41,6 +41,11 @@ sign_in()
 def init_lightspark_client(lightspark_client_id: str, lightspark_client_secret: str, lightspark_node_id: str, lightspark_node_password: str, max_spend: int | None = None):
     global LIGHTSPARK_CLIENT
     LIGHTSPARK_CLIENT = LightsparkClient(lightspark_client_id, lightspark_client_secret, lightspark_node_id, lightspark_node_password, max_spend)
+
+def set_max_spend(max_spend: int):
+    global LIGHTSPARK_CLIENT
+    if LIGHTSPARK_CLIENT:
+        LIGHTSPARK_CLIENT.set_max_spend(max_spend)
 
 @tool
 def search_agents(query: Optional[str] = None, sort_by: Literal["date", "staked"] = "date", skip: int = 0, exact_search: bool = False) -> list[dict]:
@@ -148,6 +153,8 @@ async def start_chat(input: List[Union[TextBlock, ImageBlock, DocumentBlock, Mis
     The input is a list of content blocks that can contain text, images
     (base64-encoded with media_type), PDF documents (base64-encoded), or
     miscellaneous files (base64-encoded with filename).
+
+    If returning a L402 payment request, the amount is in cents not dollars.
 
     Args:
         input: A list of content blocks to send as the first message. Each block
@@ -299,28 +306,13 @@ async def end_chat() -> dict:
 
     return {"status": "success", "message": "Chat session ended."}
 
-
 @tool
-def get_balance() -> dict:
+def get_max_spend() -> str:
     """
-    Retrieve the current credit balance for the authenticated user.
-
-    Queries the server for the user's remaining credit balance. Credits are
-    consumed when chatting with agents and can be replenished via top_up.
-
-    Returns:
-        A dict containing the user's balance information with keys "user_id"
-        and "balance", or a failure message if the user is not found.
+    Get maximum payment budget in cents.
     """
-    if not USER_ID:
-        return {"status": "failed", "message": "Not signed in. USER_ID is not set."}
+    if not LIGHTSPARK_CLIENT:
+        return "0"
+    return str(LIGHTSPARK_CLIENT.max_spend) or "Infinity"
 
-    try:
-        response = httpx.get(
-            "http://localhost:8000/ws/balance",
-            params={"user_id": USER_ID}
-        )
-        response.raise_for_status()
-        return response.json()
-    except Exception as e:
-        return {"status": "failed", "message": f"Failed to get balance: {str(e)}"}
+BTC_MCP_TOOLS = [search_agents, start_chat, continue_chat, end_chat, top_up, get_max_spend]

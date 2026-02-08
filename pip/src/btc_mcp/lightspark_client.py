@@ -22,9 +22,10 @@ class LightsparkClient:
     def pay_invoice(self, invoice: str):
         decoded = bolt11.decode(invoice)
         sats: int = decoded.amount_msat // 1000 #type: ignore
-        if self.max_spend and sats > self.max_spend:
+        usd: float = float(httpx.get(f"http://localhost:8000/api/payments/sats-to-usd/{sats}").text)
+        if self.max_spend and usd > self.max_spend:
             return { "status": "failed", "message": "Payment would exceed spending budget." }
-        outgoing = self.client.pay_invoice(node_id=self.node_id, encoded_invoice=invoice, timeout_secs=60, maximum_fees_msats=10000)  # type: ignore
+        outgoing = self.client.pay_invoice(node_id=self.node_id, encoded_invoice=invoice, timeout_secs=60, maximum_fees_msats=1000)  # type: ignore
         for _ in range(30):
             if outgoing.status not in (TransactionStatus.PENDING, TransactionStatus.NOT_STARTED):  # type: ignore
                 break
@@ -32,7 +33,7 @@ class LightsparkClient:
             outgoing = self.client.get_entity(outgoing.id, lightspark.OutgoingPayment)  # type: ignore
         if outgoing.status == TransactionStatus.SUCCESS:  # type: ignore
             if self.max_spend:
-                self.max_spend -= sats
+                self.max_spend -= usd
             try:
                 httpx.post("http://localhost:8000/api/payments/set-as-paid", params={"id": invoice})
             except Exception:

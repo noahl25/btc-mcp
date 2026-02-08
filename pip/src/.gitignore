@@ -1,0 +1,6 @@
+*
+!.gitignore
+!/btc_mcp
+!/btc_mcp/tools.py
+!/btc_mcp/lightspark_client.py
+!/btc_mcp/__init__.py

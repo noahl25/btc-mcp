@@ -8,7 +8,8 @@ from mcp.client.streamable_http import streamable_http_client
 from anthropic import AsyncAnthropic
 from anthropic.types import ToolParam, MessageParam, ImageBlockParam, TextBlockParam, DocumentBlockParam
 from dotenv import load_dotenv
-from fastapi import APIRouter, Query, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, Query, WebSocket, WebSocketDisconnect, Depends, HTTPException
+from pydantic import BaseModel
 import os
 import base64
 from docx import Document
@@ -22,6 +23,17 @@ from uuid import uuid4
 load_dotenv()
 
 mcp_client = APIRouter()
+
+@mcp_client.get("/balance")
+async def get_balance(user_id: str = Query(...)):
+    users = get_db()["users"]
+    user = await users.find_one({"user_id": user_id})
+    if not user:
+        return { "status": "failed", "message": "User not found." }
+    return {
+        "user_id": user_id,
+        "balance": user["balance"]
+    }
 
 class ToolError(Exception):
     pass
@@ -127,13 +139,6 @@ class MCPClient:
                 except ValueError as e:
                     return TextBlockParam(type="text", text=f"User attempted to add file which was unable to be parsed: {str(e)}")
             return None
-        
-        if self.balance - self.anthropic.messages.count_tokens(messages=query, model="claude-haiku-4-5-20251001") * self.cost_per_token / 5 < 50:
-            raise NotEnoughTokensForInput()
-
-        remaining = self.remaining_tokens()
-        if remaining <= 20:
-            raise OutOfCredits()
 
         content = []
         for block in query:
@@ -147,6 +152,16 @@ class MCPClient:
                 content=content
             )
         )
+
+        input_token_cost = await self.anthropic.messages.count_tokens(messages=self.messages, model="claude-haiku-4-5-20251001")
+        if self.balance - input_token_cost.input_tokens * self.cost_per_token / 5 < 50:
+            self.messages.pop()
+            raise NotEnoughTokensForInput()
+
+        remaining = self.remaining_tokens()
+        if remaining <= 20:
+            self.messages.pop()
+            raise OutOfCredits()
 
         tools_response = await self.session.list_tools()
         available_tools: list[ToolParam] = [
@@ -359,7 +374,15 @@ async def websocket_chat(id: str, websocket: WebSocket, max_tokens: str = Query(
             await websocket.close(1000)
             return
 
-        await client.connect_to_streamable_http_server(f"http://localhost:{port}/mcp")
+        try:
+            await client.connect_to_streamable_http_server(f"http://localhost:{port}/mcp")
+        except Exception as e:
+            await websocket.send_json({
+                "type": "error",
+                "message": f"Failed to connect to MCP server: {str(e)}",
+            })
+            await websocket.close(1000)
+            return
 
         while True:
             

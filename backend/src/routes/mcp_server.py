@@ -3,6 +3,7 @@ import time
 import uuid
 import docker
 import docker.types
+import requests
 from fastapi import APIRouter, UploadFile, File, Form, Depends
 from fastapi.responses import JSONResponse
 import ast
@@ -58,18 +59,34 @@ def parse_docstring(docstring: str | None):
     return {"description": description, "args": args, "returns": returns}
 
 def wait_for_startup(container, timeout=30):
+    container.reload()
+    status = container.status
+    if status in ("exited", "dead"):
+        raise RuntimeError(f"Container exited early (status: {status}).")
+
+    port_info = container.attrs["NetworkSettings"]["Ports"].get("8080/tcp")
+    if not port_info:
+        raise RuntimeError("No port mapping found for 8080/tcp.")
+    host_port = port_info[0]["HostPort"]
+
     start = time.monotonic()
-    while True:
-        container.reload()
-        if container.status in ("exited", "dead"):
-            logs = container.logs(tail=200).decode("utf-8", errors="ignore")
-            raise RuntimeError(f"Container exited early.\nLogs:\n{logs}")
-        logs = container.logs().decode("utf-8", errors="ignore")
-        if "Application startup complete." in logs:
-            return True
-        if time.monotonic() - start > timeout:
-            raise TimeoutError("Unable to startup.")
-        time.sleep(0.2)
+    while time.monotonic() - start < timeout:
+        try:
+            resp = requests.get(f"http://127.0.0.1:{host_port}/mcp", timeout=2)
+            if resp.status_code < 500:
+                return True
+        except (requests.ConnectionError, requests.Timeout):
+            pass
+        try:
+            container.reload()
+            if container.status in ("exited", "dead"):
+                raise RuntimeError(f"Container died (status: {container.status}).")
+        except docker.errors.NotFound:  # type: ignore
+            raise RuntimeError("Container was removed.")
+
+        time.sleep(1)
+
+    raise TimeoutError("Container did not become ready in time.")
 
 @mcp_server.post("/deploy")
 async def deploy_mcp(title: str = Form(...), description: str = Form(...), cpu: float = Form(...), ram: int = Form(...), tmpfs: int = Form(...), private: bool = Form(...), mcp: UploadFile = File(...), requirements: UploadFile = File(None), env: UploadFile = File(None), session = Depends(creator_session)):
@@ -129,22 +146,22 @@ async def deploy_mcp(title: str = Form(...), description: str = Form(...), cpu: 
     storageCostPerMB = 0.00002
     totalCost = (cpu * cpuCostPerPercent) + (ram * memoryCostPerMB) + (tmpfs * storageCostPerMB)
 
-    await get_db()["agents"].insert_one({
-        "title": title,
-        "description": description,
-        "tools": tools,
-        "cost_per_token": totalCost,
-        "creator": session["pubkey"],
-        "port": 1024,
-        "id": unique_id,
-        "private": private,
-        "date": datetime.now(tz=timezone.utc),
-        "embedding": embed(title, description, json.dumps(tools)),
-        "staked": 0,
-        "program": program
-    })
+    # await get_db()["agents"].insert_one({
+    #     "title": title,
+    #     "description": description,
+    #     "tools": tools,
+    #     "cost_per_token": totalCost,
+    #     "creator": session["pubkey"],
+    #     "port": 1024,
+    #     "id": unique_id,
+    #     "private": private,
+    #     "date": datetime.now(tz=timezone.utc),
+    #     "embedding": embed(title, description, json.dumps(tools)),
+    #     "staked": 0,
+    #     "program": program
+    # })
 
-    return JSONResponse({ "status": "success", "message": unique_id }, status_code=200)
+    # return JSONResponse({ "status": "success", "message": unique_id }, status_code=200)
 
     dockerfile = f"""FROM python:3.12-slim
 WORKDIR /app
@@ -189,22 +206,24 @@ CMD ["python", "server.py"]
             detach=True,
             name=f"mcp-server-{unique_id}",
             ports={ "8080/tcp": ("127.0.0.1", 0) },
-            mem_limit=f"{ram}m",
-            nano_cpus=int(cpu * 1_000_000_000),
             network_mode="bridge",
             tmpfs={"/tmp": f"size={tmpfs}m"},
             read_only=True,
             environment=environment,
             security_opt=["no-new-privileges"],
+            nano_cpus=int((cpu / 100) * 1_000_000_000),
             cap_drop=["ALL"],
-            pids_limit=64,
+            cap_add=["NET_BIND_SERVICE"],
+            pids_limit=256,
             ulimits=[
-                docker.types.Ulimit(name="nofile", soft=64, hard=64),
-                docker.types.Ulimit(name="nproc", soft=64, hard=64),
-            ]
+                docker.types.Ulimit(name="nofile", soft=1024, hard=1024),
+                docker.types.Ulimit(name="nproc", soft=256, hard=256)
+            ],
+            mem_limit=f"{ram}m"
         )
     except Exception as e:
-        shutil.rmtree(server_dir)
+        if os.path.exists(server_dir):
+            shutil.rmtree(server_dir)
         return JSONResponse({ "error": str(e), "status": "failed" }, status_code=500)
     
     try:
@@ -231,8 +250,11 @@ CMD ["python", "server.py"]
         "private": private,
         "date": datetime.now(tz=timezone.utc),
         "embedding": embed(title, description, json.dumps(tools)),
-        "staked": 0
+        "staked": 0,
+        "program": mcp_file.decode()
     })
 
-    return JSONResponse({ "status": "success" }, status_code=200)
+    return JSONResponse({ "status": "success", "message": unique_id }, status_code=200)
     
+
+

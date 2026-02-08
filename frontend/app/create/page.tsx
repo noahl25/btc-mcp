@@ -132,8 +132,6 @@ const SubmissionScreen = ({ state, onClose }: { state: AxiosResponse<any, any, {
             }
         }
 
-        console.log(state)
-
     }, [state])
 
     const router = useRouter();
@@ -392,8 +390,8 @@ export default function Create() {
         if (description == null || description.length === 0) {
             addError("description", "Please add a description.");
         }
-        else if (description.length > 30) {
-            addError("description", "Description must be between 1 and 30 characters.");
+        else if (description.length > 500) {
+            addError("description", "Description must be between 1 and 500 characters.");
         }
         if (hasError) {
             setErrors(prev => {

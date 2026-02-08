@@ -1,3 +1,15 @@
+from bolt11.types import MilliSatoshi
+from pydantic import GetCoreSchemaHandler
+from pydantic_core import core_schema as cs
+
+def _get_pydantic_core_schema(cls, source_type, handler: GetCoreSchemaHandler):
+    return cs.no_info_plain_validator_function(
+        lambda v: MilliSatoshi(int(v)),
+        serialization=cs.plain_serializer_function_ser_schema(int, info_arg=False),
+    )
+
+setattr(MilliSatoshi, '__get_pydantic_core_schema__', classmethod(_get_pydantic_core_schema))
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager

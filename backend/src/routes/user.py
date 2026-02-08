@@ -11,5 +11,5 @@ async def create_user():
     return id
 
 @user.post("/user-signin")
-async def me():
+async def user_signin():
     return { "id": await create_user() }
